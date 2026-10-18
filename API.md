@@ -13,7 +13,28 @@ Base: https://kisskh.co/api/  — plain JSON, no auth. Send Referer: https://kis
 
 ## Paging grid
 DramaList/List?page=N&pageSize=40&type=T&sub=0&country=C&status=S&order=O
--> {page,pageSize,totalCount,data:[...]}
+-> {page,pageSize,totalCount,data:[...]}  (pages do not overlap; verified p1/p2 overlap=0)
+
+### Verified catalog mapping (source: kisskh Explore page chunk 780.f011ddf6618b7a1e.js `chips`
+### array, cross-checked 2026-10-18 by sampling DramaList/Drama/{id} for each filter; see probe/categories*.txt)
+- type (site labels): 0 All, 1 TVSeries, 2 Movie, 3 Anime, 4 Hollywood
+  - type=1 detail.type == "TVSeries"; type=2 detail.type == "Movie"; type=3 "Anime"; type=4 "Hollywood"
+  - Hollywood (4) = US content, mixed series and movies; only country 6 has results.
+  - Movies are NOT always 1 episode (Philippine/Japanese movies have 4-8 parts). Use type, never episode count.
+- country (site labels, site order): 0 All Regions, 2 South Korea, 1 Chinese, 6 United States, 5 Thailand,
+  8 Philippine, 3 Japanese, 4 Hong Kong, 7 Taiwan
+  - detail.country strings: China, South Korea, Japan, Hong Kong, Thailand, United States, Taiwan, Philippines
+  - country=9 returns a few results via API but is NOT offered by the site -> do not expose.
+- status: 0 All, 1 Ongoing, 2 Completed, 3 Upcoming
+- order (site labels): 1 Popular, 2 Last Update, 3 Release Date. There is NO rating sort.
+- Verified non-empty combos (totalCount): series KR 2075, CN 2980, JP 557, TH 949, TW 121, PH 119, HK 18, US 0;
+  movies KR 613, PH 318, JP 259, CN 191, TH 118, TW 31, HK 13, US 2; anime JP 2115, CN 408, KR 21, US 3.
+  Empty combos exist (e.g. series+US = 0): probe with pageSize=1 and hide/disable empty tabs.
+- TopRating / MostView / LastUpdate / Upcoming / Animate endpoints are global and accept no type/country
+  filter. They must never be labelled as series-, movie- or country-specific.
+- Old mapping lines below ("order 2 newest release, 3 last updated", country 9) are superseded by this block.
+
+Legacy notes:
 - type:    0 all, 1 TV series, 2 movie, 3 anime, 4 Hollywood
 - country: 0 all, 1 China, 2 Korea, 3 Japan, 4 Hong Kong, 5 Thailand, 6 US, 7 Taiwan, 8 Philippines, 9 Indonesia
 - status:  0 all, 1 ongoing, 2 completed, 3 upcoming
