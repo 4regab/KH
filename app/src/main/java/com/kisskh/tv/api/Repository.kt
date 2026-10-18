@@ -37,13 +37,17 @@ class Repository(context: Context) {
 
     private val keys = KeyService(appContext, http)
 
-    /** Returns the HLS url for an episode, or null if it is a non-playable (third-party) entry. */
+    /**
+     * Returns the playable url for an episode, or null if it isn't released yet.
+     * type 1 = HLS (.m3u8), type 0 = direct .mp4, type 2 = third-party countdown widget (not playable).
+     */
     suspend fun streamUrl(episodeId: Int): String? {
         val kkey = keys.videoKey(episodeId)
         val s = api.episode(episodeId, kkey)
         android.util.Log.i("KissKH", "stream ep=$episodeId keyLen=${kkey.length} type=${s.type} video=${s.video?.take(80)}")
         val v = s.video ?: return null
-        return if (s.type == 1 && v.contains(".m3u8")) v else if (v.startsWith("http") && v.contains(".m3u8")) v else null
+        if (s.type == 2 || !v.startsWith("http")) return null
+        return v
     }
 
     /** Downloads every subtitle, decrypts encrypted cues, and writes local SRT files for the player. */

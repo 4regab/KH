@@ -66,11 +66,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val r = buildList {
-                    runCatching { add(Row("Latest", repo.api.lastUpdate())) }
-                    runCatching { add(Row("Popular", repo.api.mostView())) }
-                    runCatching { add(Row("Top Rating", repo.api.topRating())) }
-                    runCatching { add(Row("Anime", repo.api.animate())) }
-                    runCatching { add(Row("Upcoming", repo.api.upcoming())) }
+                    suspend fun row(title: String, load: suspend () -> List<Show>) {
+                        runCatching { load() }
+                            .onSuccess { add(Row(title, it)) }
+                            .onFailure { android.util.Log.w("KissKH", "row '$title' failed", it) }
+                    }
+                    row("Latest") { repo.api.lastUpdate() }
+                    row("Popular") { repo.api.mostView() }
+                    row("Top Rating") { repo.api.topRating() }
+                    row("Anime") { repo.api.animate() }
+                    row("Upcoming") { repo.api.upcoming() }
                 }.filter { it.items.isNotEmpty() }
                 rows.value = r
                 if (r.isEmpty()) homeError.value = "Could not load. Check connection."

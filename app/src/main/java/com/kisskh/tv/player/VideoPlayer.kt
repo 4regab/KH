@@ -26,7 +26,15 @@ fun VideoPlayer(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val player = remember {
-        ExoPlayer.Builder(context).build().apply {
+        val http = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14) Chrome/130 Safari/537.36")
+            .setDefaultRequestProperties(mapOf("Referer" to "https://kisskh.co/", "Origin" to "https://kisskh.co"))
+            .setAllowCrossProtocolRedirects(true)
+        // DefaultDataSource keeps file:// working for the local decrypted subtitle files.
+        val dataSource = androidx.media3.datasource.DefaultDataSource.Factory(context, http)
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSource))
+            .build().apply {
             val subConfigs = subs.map { s ->
                 MediaItem.SubtitleConfiguration.Builder(Uri.parse(s.uri))
                     .setMimeType(MimeTypes.APPLICATION_SUBRIP)
@@ -40,6 +48,11 @@ fun VideoPlayer(
                 .setSubtitleConfigurations(subConfigs)
                 .build()
             setMediaItem(item)
+            addListener(object : androidx.media3.common.Player.Listener {
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    android.util.Log.e("KissKH", "playback error ${error.errorCodeName} url=$url", error)
+                }
+            })
             if (resumeMs > 0) seekTo(resumeMs)
             playWhenReady = true
             prepare()

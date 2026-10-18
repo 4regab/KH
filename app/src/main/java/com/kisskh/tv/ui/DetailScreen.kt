@@ -2,6 +2,7 @@ package com.kisskh.tv.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -42,15 +43,12 @@ fun DetailScreen(vm: AppViewModel) {
         Box(Modifier.fillMaxSize()) { Text("Loading...", color = Color.White, modifier = Modifier.padding(32.dp)) }
         return
     }
-    Row(Modifier.fillMaxSize().padding(32.dp)) {
-        AsyncImage(
-            model = thumbUrl(d.thumbnail),
-            contentDescription = d.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.width(240.dp).height(360.dp),
-        )
-        Column(Modifier.fillMaxWidth().padding(start = 24.dp)) {
-            Text(d.title ?: "", color = Color.White, fontSize = 26.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Narrow (portrait phone): stack poster above the list. Wide (TV/tablet/landscape): side by side.
+        val narrow = maxWidth < 600.dp
+        val pad = if (narrow) 16.dp else 32.dp
+        val info: @Composable () -> Unit = {
+            Text(d.title ?: "", color = Color.White, fontSize = if (narrow) 22.sp else 26.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 listOfNotNull(d.type, d.country, d.status).joinToString("  •  "),
                 color = Color(0xFFBBBBBB), fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp),
@@ -60,6 +58,8 @@ fun DetailScreen(vm: AppViewModel) {
                 maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp),
             )
             Text("Episodes", color = Color.White, fontSize = 18.sp, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
+        }
+        val episodes: @Composable () -> Unit = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 itemsIndexed(d.episodes) { index, ep ->
                     val num = if (ep.number % 1f == 0f) ep.number.toInt().toString() else ep.number.toString()
@@ -79,6 +79,26 @@ fun DetailScreen(vm: AppViewModel) {
                 }
             }
         }
+        if (narrow) {
+            Column(Modifier.fillMaxSize().padding(pad)) {
+                Row {
+                    AsyncImage(
+                        model = thumbUrl(d.thumbnail), contentDescription = d.title, contentScale = ContentScale.Crop,
+                        modifier = Modifier.width(110.dp).height(165.dp),
+                    )
+                    Column(Modifier.fillMaxWidth().padding(start = 12.dp)) { info() }
+                }
+                episodes()
+            }
+        } else {
+            Row(Modifier.fillMaxSize().padding(pad)) {
+                AsyncImage(
+                    model = thumbUrl(d.thumbnail), contentDescription = d.title, contentScale = ContentScale.Crop,
+                    modifier = Modifier.width(240.dp).height(360.dp),
+                )
+                Column(Modifier.fillMaxWidth().padding(start = 24.dp)) { info(); episodes() }
+            }
+        }
     }
 }
 
@@ -86,7 +106,7 @@ fun DetailScreen(vm: AppViewModel) {
 fun GridScreen(title: String, items: List<com.kisskh.tv.api.Show>, onEnd: () -> Unit, onClick: (Int) -> Unit) {
     Column(Modifier.fillMaxSize().padding(24.dp)) {
         Text(title, color = Color.White, fontSize = 22.sp, modifier = Modifier.padding(bottom = 8.dp))
-        LazyVerticalGrid(columns = GridCells.Fixed(6), modifier = Modifier.fillMaxSize()) {
+        LazyVerticalGrid(columns = GridCells.Adaptive(130.dp), modifier = Modifier.fillMaxSize()) {
             items(items) { show ->
                 PosterCard(show) { onClick(show.id) }
             }

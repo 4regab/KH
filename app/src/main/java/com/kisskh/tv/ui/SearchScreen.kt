@@ -41,7 +41,7 @@ fun SearchScreen(vm: AppViewModel) {
                 .padding(12.dp),
         )
         LazyVerticalGrid(
-            columns = GridCells.Fixed(6),
+            columns = GridCells.Adaptive(130.dp),
             modifier = Modifier.fillMaxSize().padding(top = 12.dp),
         ) {
             items(results) { show -> PosterCard(show) { vm.go(Screen.Detail(show.id)) } }
