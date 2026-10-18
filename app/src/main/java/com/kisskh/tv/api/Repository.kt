@@ -13,7 +13,7 @@ import java.io.File
 
 data class SubtitleFile(val uri: String, val label: String, val language: String)
 
-class Repository(context: Context) {
+class Repository(context: Context) : CatalogSource {
     private val appContext = context.applicationContext
 
     private val http = OkHttpClient.Builder()
@@ -81,12 +81,29 @@ class Repository(context: Context) {
         out.sortedByDescending { it.language.startsWith("en") }
     }
 
-    // --- resume positions ---
-    private val prefs = appContext.getSharedPreferences("resume", Context.MODE_PRIVATE)
-    fun savePosition(episodeId: Int, positionMs: Long, durationMs: Long) {
-        if (durationMs > 0 && positionMs > 3000 && positionMs < durationMs - 5000)
-            prefs.edit().putLong("ep_$episodeId", positionMs).apply()
-        else prefs.edit().remove("ep_$episodeId").apply()
-    }
-    fun loadPosition(episodeId: Int): Long = prefs.getLong("ep_$episodeId", 0L)
+    // --- catalog ---
+
+    /** One page of DramaList/List for [query]. Also gives [count] and [availableTabs]. */
+    override suspend fun list(query: CatalogQuery, page: Int, pageSize: Int): ListPage =
+        api.list(
+            page = page,
+            pageSize = pageSize,
+            type = query.type.id,
+            country = query.countryId,
+            status = query.status.id,
+            order = query.order.id,
+        )
+
+    /** Title detail as a [Result], so callers can show an error with Retry instead of hanging. */
+    suspend fun dramaResult(id: Int): Result<Drama> = suspendCatching { api.drama(id) }
+
+    // --- resume positions and watch history ---
+
+    /** Saved positions ("resume" prefs, `ep_<id>`) and the per-title last-watched entries ("history" prefs). */
+    val history = WatchHistory.create(appContext)
+
+    fun savePosition(episodeId: Int, positionMs: Long, durationMs: Long) =
+        history.savePosition(episodeId, positionMs, durationMs)
+
+    fun loadPosition(episodeId: Int): Long = history.loadPosition(episodeId)
 }

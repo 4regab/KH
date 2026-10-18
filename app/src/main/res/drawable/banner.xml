@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android TV banner (320x180 dp): the KH wordmark (see kh_wordmark.xml) at 140x84 on near-black. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180"
+    tools:ignore="VectorRaster">
+    <path
+        android:fillColor="#09090B"
+        android:pathData="M0,0H320V180H0Z" />
+    <group
+        android:scaleX="1.4"
+        android:scaleY="1.4"
+        android:translateX="90"
+        android:translateY="48">
+        <path
+            android:fillColor="#F52236"
+            android:pathData="M0,0H14V21.33L30,0H46L23.5,30L46,60H30L14,38.67V60H0Z" />
+        <path
+            android:fillColor="#F52236"
+            android:pathData="M54,0H68V23H86V0H100V60H86V37H68V60H54Z" />
+    </group>
+</vector>

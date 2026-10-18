@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  KH wordmark: two bold, flat letterforms drawn from straight lines (an original design, not a font).
+  Letter K is x 0-46, letter H is x 54-100, both 60 tall. The launcher icon foreground and the TV
+  banner repeat these two paths with a scale, so change all three files together.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="100dp"
+    android:height="60dp"
+    android:viewportWidth="100"
+    android:viewportHeight="60">
+    <path
+        android:fillColor="#F52236"
+        android:pathData="M0,0H14V21.33L30,0H46L23.5,30L46,60H30L14,38.67V60H0Z" />
+    <path
+        android:fillColor="#F52236"
+        android:pathData="M54,0H68V23H86V0H100V60H86V37H68V60H54Z" />
+</vector>

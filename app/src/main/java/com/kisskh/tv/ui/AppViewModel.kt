@@ -1,149 +1,294 @@
 package com.kisskh.tv.ui
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.kisskh.tv.api.CatalogPager
+import com.kisskh.tv.api.CatalogQuery
+import com.kisskh.tv.api.ContentType
+import com.kisskh.tv.api.Country
 import com.kisskh.tv.api.Drama
 import com.kisskh.tv.api.Repository
 import com.kisskh.tv.api.Show
 import com.kisskh.tv.api.SubtitleFile
+import com.kisskh.tv.api.availableTabs
+import com.kisskh.tv.api.suspendCatching
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-sealed interface Screen {
-    data object Home : Screen
-    data object Search : Screen
-    data object Browse : Screen
-    data class Detail(val id: Int) : Screen
-    data class Player(val episodeId: Int, val title: String) : Screen
-}
+/** One titled row on the Home screen. */
+data class HomeRow(val title: String, val items: List<Show>)
 
-data class Row(val title: String, val items: List<Show>)
+/** Home content. [failedRows] names rows that could not load, so the screen can offer Retry. */
+data class HomeContent(val rows: List<HomeRow>, val failedRows: List<String>)
 
 data class PlayerData(val url: String, val subs: List<SubtitleFile>, val resumeMs: Long)
 
+/**
+ * App-wide state. Everything here is main-thread only.
+ *
+ * - Navigation: [nav], [push], [selectTab], [onBack], [saveFocus], [setCatalogQuery].
+ * - Catalog lists: [pager], [countryTabs].
+ * - Loading: [home], [detail], [search], [playerState] (all end in Success, Empty or Error, never stuck).
+ */
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     val repo = Repository(app)
 
-    val screen = MutableStateFlow<Screen>(Screen.Home)
-    private val back = ArrayDeque<Screen>()
+    // ---------------------------------------------------------------- navigation
 
-    val rows = MutableStateFlow<List<Row>>(emptyList())
-    val homeError = MutableStateFlow<String?>(null)
+    private val _nav = MutableStateFlow(NavState())
 
-    val detail = MutableStateFlow<Drama?>(null)
+    /** The back stack. Draw `nav.current`; highlight `nav.activeTab` on the rail. */
+    val nav: StateFlow<NavState> = _nav.asStateFlow()
 
-    private val _player = MutableStateFlow<PlayerData?>(null)
-    val player: StateFlow<PlayerData?> = _player
-    val playerError = MutableStateFlow<String?>(null)
+    /** Open [dest] on top of the current screen. */
+    fun push(dest: Dest) {
+        _nav.update { it.push(dest) }
+    }
 
-    val searchResults = MutableStateFlow<List<Show>>(emptyList())
+    /** Rail selection. See [NavState.selectTab]. */
+    fun selectTab(tab: RootTab) {
+        _nav.update { it.selectTab(tab) }
+        prunePagers()
+    }
+
+    /** @return true if we handled back, false if the app should exit. */
+    fun onBack(): Boolean {
+        val before = _nav.value
+        val after = before.pop() ?: return false
+        _nav.value = after
+        if (before.current is Dest.Player) stopPlayback()
+        prunePagers()
+        return true
+    }
+
+    /**
+     * Remember where focus and scroll were on the current screen. Call it right before leaving
+     * (a click that opens another screen), not on every focus change.
+     */
+    fun saveFocus(focusKey: String?, scrollIndex: Int? = null) {
+        _nav.update { state ->
+            state.updateCurrent { (it as? Dest.Restorable)?.withFocus(focusKey, scrollIndex) ?: it }
+        }
+    }
+
+    // ---------------------------------------------------------------- catalog lists
+
+    private val pagers = HashMap<String, CatalogPager>()
+
+    /**
+     * The pager behind a Series, Movies or country screen. The first call for a destination starts
+     * loading page 1. Later calls return the same pager, so coming back finds the pages already loaded.
+     * If [dest] has a different query than the pager, the pager switches to it and reloads.
+     * Safe to call again and again.
+     */
+    fun pager(dest: Dest.Catalog): CatalogPager {
+        val existing = pagers[dest.pagerKey]
+        if (existing != null) {
+            existing.setQuery(dest.query)
+            return existing
+        }
+        return CatalogPager(repo, viewModelScope, dest.query).also {
+            pagers[dest.pagerKey] = it
+            it.loadNext()
+        }
+    }
+
+    /**
+     * Change the filters of the current catalog screen (type and country are fixed by the screen).
+     * Resets paging, drops answers still on the way for the old filters, and reloads.
+     */
+    fun setCatalogQuery(transform: (CatalogQuery) -> CatalogQuery) {
+        val dest = _nav.value.current as? Dest.Catalog ?: return
+        val next = dest.withQuery(transform(dest.query))
+        if (next == dest) return
+        _nav.update { it.updateCurrent { next } }
+        pager(next)
+    }
+
+    private fun prunePagers() {
+        val keep = _nav.value.catalogKeys()
+        val it = pagers.entries.iterator()
+        while (it.hasNext()) {
+            val e = it.next()
+            if (e.key !in keep) {
+                e.value.cancel()
+                it.remove()
+            }
+        }
+    }
+
+    // ponytail: cached for the life of the app; a country's tab list is not refreshed until restart.
+    private val tabFlows = HashMap<Country, MutableStateFlow<UiState<List<ContentType>>>>()
+
+    /**
+     * Tabs for a country page (All, TV Series, Movies) with empty ones left out.
+     * Empty means the country has no titles at all.
+     */
+    fun countryTabs(country: Country): StateFlow<UiState<List<ContentType>>> =
+        tabFlows.getOrPut(country) {
+            MutableStateFlow<UiState<List<ContentType>>>(UiState.Loading).also { loadTabs(country, it) }
+        }
+
+    fun retryCountryTabs(country: Country) {
+        val flow = tabFlows[country] ?: return
+        if (flow.value is UiState.Error) loadTabs(country, flow)
+    }
+
+    private fun loadTabs(country: Country, flow: MutableStateFlow<UiState<List<ContentType>>>) {
+        flow.value = UiState.Loading
+        viewModelScope.launch {
+            flow.value = suspendCatching { repo.availableTabs(country) }.fold(
+                onSuccess = { if (it.isEmpty()) UiState.Empty() else UiState.Success(it) },
+                onFailure = { uiError(it) },
+            )
+        }
+    }
+
+    // ---------------------------------------------------------------- home
+
+    private val _home = MutableStateFlow<UiState<HomeContent>>(UiState.Loading)
+    val home: StateFlow<UiState<HomeContent>> = _home.asStateFlow()
+    private var homeJob: Job? = null
 
     init {
         loadHome()
     }
 
-    fun go(s: Screen) {
-        back.addLast(screen.value)
-        screen.value = s
-        when (s) {
-            is Screen.Detail -> loadDetail(s.id)
-            else -> {}
-        }
-    }
-
-    /** @return true if we handled back, false if the app should exit. */
-    fun onBack(): Boolean {
-        val prev = back.removeLastOrNull() ?: return false
-        _player.value = null
-        playerError.value = null
-        screen.value = prev
-        return true
-    }
+    /** Reload Home (after an Error, or to retry rows that failed). */
+    fun retryHome() = loadHome()
 
     private fun loadHome() {
-        viewModelScope.launch {
-            try {
-                val r = buildList {
-                    suspend fun row(title: String, load: suspend () -> List<Show>) {
-                        runCatching { load() }
-                            .onSuccess { add(Row(title, it)) }
-                            .onFailure { android.util.Log.w("KissKH", "row '$title' failed", it) }
+        homeJob?.cancel()
+        _home.value = UiState.Loading
+        homeJob = viewModelScope.launch {
+            val rows = ArrayList<HomeRow>()
+            val failed = ArrayList<String>()
+            var lastError: Throwable? = null
+            suspend fun row(title: String, load: suspend () -> List<Show>) {
+                suspendCatching { load() }
+                    .onSuccess { shows ->
+                        // distinctBy: stage 2 uses show ids as lazy-list keys, and duplicates would crash those.
+                        if (shows.isNotEmpty()) rows.add(HomeRow(title, shows.distinctBy { it.id }))
                     }
-                    row("Latest") { repo.api.lastUpdate() }
-                    row("Popular") { repo.api.mostView() }
-                    row("Top Rating") { repo.api.topRating() }
-                    row("Anime") { repo.api.animate() }
-                    row("Upcoming") { repo.api.upcoming() }
-                }.filter { it.items.isNotEmpty() }
-                rows.value = r
-                if (r.isEmpty()) homeError.value = "Could not load. Check connection."
-            } catch (e: Throwable) {
-                homeError.value = e.message ?: "Load failed"
+                    .onFailure {
+                        Log.w("KissKH", "row '$title' failed", it)
+                        failed.add(title)
+                        lastError = it
+                    }
+            }
+            row("Latest") { repo.api.lastUpdate() }
+            row("Popular") { repo.api.mostView() }
+            row("Top Rating") { repo.api.topRating() }
+            row("Anime") { repo.api.animate() }
+            row("Upcoming") { repo.api.upcoming() }
+            _home.value = when {
+                rows.isNotEmpty() -> UiState.Success(HomeContent(rows, failed))
+                lastError != null -> uiError(lastError!!)
+                else -> UiState.Empty()
             }
         }
     }
 
-    fun retryHome() { homeError.value = null; loadHome() }
+    // ---------------------------------------------------------------- detail
 
-    private fun loadDetail(id: Int) {
-        detail.value = null
+    // ponytail: kept for the life of the app so Back shows a title at once. One small entry per title opened.
+    private val details = HashMap<Int, MutableStateFlow<UiState<Drama>>>()
+
+    /** Title detail. Starts loading on first use. Error has a Retry via [retryDetail]. */
+    fun detail(dramaId: Int): StateFlow<UiState<Drama>> =
+        details.getOrPut(dramaId) {
+            MutableStateFlow<UiState<Drama>>(UiState.Loading).also { loadDetail(dramaId, it) }
+        }
+
+    fun retryDetail(dramaId: Int) {
+        val flow = details[dramaId] ?: return
+        if (flow.value is UiState.Error) loadDetail(dramaId, flow)
+    }
+
+    private fun loadDetail(dramaId: Int, flow: MutableStateFlow<UiState<Drama>>) {
+        flow.value = UiState.Loading
         viewModelScope.launch {
-            detail.value = runCatching { repo.api.drama(id) }.getOrNull()
+            flow.value = repo.dramaResult(dramaId).fold(
+                onSuccess = { UiState.Success(it) },
+                onFailure = {
+                    Log.w("KissKH", "detail $dramaId failed", it)
+                    uiError(it)
+                },
+            )
         }
     }
 
-    fun search(q: String) {
-        if (q.isBlank()) { searchResults.value = emptyList(); return }
-        viewModelScope.launch {
-            searchResults.value = runCatching { repo.api.search(q.trim()) }.getOrDefault(emptyList())
-        }
+    // ---------------------------------------------------------------- search
+
+    /** Search-as-you-type. Lives as long as the app, so the query and results survive navigation. */
+    val search = SearchController(viewModelScope) { repo.api.search(it.trim()) }
+
+    // ---------------------------------------------------------------- playback
+
+    private val _player = MutableStateFlow<UiState<PlayerData>>(UiState.Loading)
+
+    /**
+     * Stream for the current Player screen. Loading while the link is found, Success with the
+     * stream, Empty when the episode is not released yet, Error (with [retryPlayer]) otherwise.
+     */
+    val playerState: StateFlow<UiState<PlayerData>> = _player.asStateFlow()
+
+    private var playerJob: Job? = null
+
+    // Kept after Back so the final progress save (from the player's dispose) still knows the title.
+    private var nowPlaying: Dest.Player? = null
+
+    /** Open the player for [player] and find its stream. */
+    fun play(player: Dest.Player) {
+        nowPlaying = player
+        push(player)
+        loadStream(player)
     }
 
-    fun play(episodeId: Int, title: String) {
-        go(Screen.Player(episodeId, title))
-        _player.value = null
-        playerError.value = null
-        viewModelScope.launch {
-            val url = runCatching { repo.streamUrl(episodeId) }.getOrNull()
-            if (url == null) {
-                playerError.value = "This episode has no playable stream yet."
+    fun retryPlayer() {
+        val p = _nav.value.current as? Dest.Player ?: return
+        loadStream(p)
+    }
+
+    private fun loadStream(p: Dest.Player) {
+        playerJob?.cancel()
+        _player.value = UiState.Loading
+        playerJob = viewModelScope.launch {
+            val url = suspendCatching { repo.streamUrl(p.episodeId) }.getOrElse {
+                Log.w("KissKH", "stream ${p.episodeId} failed", it)
+                _player.value = uiError(it)
                 return@launch
             }
-            val subs = runCatching { repo.subtitles(episodeId) }.getOrDefault(emptyList())
-            _player.value = PlayerData(url, subs, repo.loadPosition(episodeId))
+            if (url == null) {
+                _player.value = UiState.Empty("This episode isn't released yet.")
+                return@launch
+            }
+            val subs = suspendCatching { repo.subtitles(p.episodeId) }.getOrDefault(emptyList())
+            _player.value = UiState.Success(PlayerData(url, subs, repo.loadPosition(p.episodeId)))
         }
     }
 
-    fun savePosition(episodeId: Int, pos: Long, dur: Long) = repo.savePosition(episodeId, pos, dur)
-
-    // --- browse grid with paging ---
-    val browseItems = MutableStateFlow<List<Show>>(emptyList())
-    private var browsePage = 0
-    private var browseTotal = Int.MAX_VALUE
-    private var browseLoading = false
-    var browseType = 0; var browseCountry = 0; var browseStatus = 0; var browseOrder = 1
-
-    fun resetBrowse() {
-        browseItems.value = emptyList(); browsePage = 0; browseTotal = Int.MAX_VALUE
-        loadMoreBrowse()
+    private fun stopPlayback() {
+        playerJob?.cancel()
+        _player.value = UiState.Loading
     }
 
-    fun loadMoreBrowse() {
-        if (browseLoading || browseItems.value.size >= browseTotal) return
-        browseLoading = true
-        viewModelScope.launch {
-            try {
-                val p = browsePage + 1
-                val res = repo.api.list(p, 40, browseType, 0, browseCountry, browseStatus, browseOrder)
-                browseTotal = res.totalCount
-                browsePage = p
-                browseItems.value = browseItems.value + res.data
-            } catch (_: Throwable) {
-            } finally {
-                browseLoading = false
-            }
+    /**
+     * Save playback progress. Safe to call often, and after Back. Updates the episode position and,
+     * for the episode opened with [play], the title's watch history.
+     */
+    fun savePosition(episodeId: Int, positionMs: Long, durationMs: Long) {
+        val p = nowPlaying
+        if (p != null && p.episodeId == episodeId) {
+            repo.history.record(p.dramaId, episodeId, p.episodeNumber, p.title, p.thumbnail, positionMs, durationMs)
+        } else {
+            repo.savePosition(episodeId, positionMs, durationMs)
         }
     }
 }

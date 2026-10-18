@@ -29,20 +29,34 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.tv.material3.Button
 import androidx.tv.material3.Card
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.kisskh.tv.api.Drama
+
+// Stage 1 stand-in: adapted to the new navigation and UiState. Stage 2 replaces this screen
+// and moves GridScreen out of this file.
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun DetailScreen(vm: AppViewModel, dest: Dest.Detail) {
+    val state by remember(dest.dramaId) { vm.detail(dest.dramaId) }.collectAsStateWithLifecycle()
+    when (val s = state) {
+        UiState.Loading -> Box(Modifier.fillMaxSize()) { Text("Loading...", color = Color.White, modifier = Modifier.padding(32.dp)) }
+        is UiState.Empty -> Box(Modifier.fillMaxSize()) { Text(s.message ?: "Nothing here.", color = Color.White, modifier = Modifier.padding(32.dp)) }
+        is UiState.Error -> Column(Modifier.fillMaxSize().padding(32.dp)) {
+            Text(s.message, color = Color.White)
+            val retry = { vm.retryDetail(dest.dramaId) }
+            Button(onClick = retry, modifier = Modifier.padding(top = 12.dp).onTap(retry)) { Text("Retry") }
+        }
+        is UiState.Success -> DetailContent(vm, s.data)
+    }
+}
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun DetailScreen(vm: AppViewModel) {
-    val drama by vm.detail.collectAsStateWithLifecycle()
-    val d = drama
-    if (d == null) {
-        Box(Modifier.fillMaxSize()) { Text("Loading...", color = Color.White, modifier = Modifier.padding(32.dp)) }
-        return
-    }
+private fun DetailContent(vm: AppViewModel, d: Drama) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Narrow (portrait phone): stack poster above the list. Wide (TV/tablet/landscape): side by side.
         val narrow = maxWidth < 600.dp
@@ -67,7 +81,10 @@ fun DetailScreen(vm: AppViewModel) {
                     if (index == 0) {
                         LaunchedEffect(d.id) { runCatching { focusRequester.requestFocus() } }
                     }
-                    val playEp = { vm.play(ep.id, "${d.title} — EP $num") }
+                    val playEp = {
+                        vm.saveFocus(FocusKeys.episode(ep.id))
+                        vm.play(Dest.Player(ep.id, d.id, d.title ?: "", "Episode $num", ep.number, d.thumbnail))
+                    }
                     Card(
                         onClick = playEp,
                         modifier = Modifier.fillMaxWidth().onTap(playEp).then(
