@@ -9,25 +9,44 @@ import com.kisskh.tv.api.CatalogQuery
 import com.kisskh.tv.api.ContentType
 import com.kisskh.tv.api.Country
 import com.kisskh.tv.api.Drama
+import com.kisskh.tv.api.Episode
 import com.kisskh.tv.api.Repository
 import com.kisskh.tv.api.Show
+import com.kisskh.tv.api.SortOrder
 import com.kisskh.tv.api.SubtitleFile
 import com.kisskh.tv.api.availableTabs
 import com.kisskh.tv.api.suspendCatching
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** One titled row on the Home screen. */
 data class HomeRow(val title: String, val items: List<Show>)
 
-/** Home content. [failedRows] names rows that could not load, so the screen can offer Retry. */
-data class HomeContent(val rows: List<HomeRow>, val failedRows: List<String>)
+/**
+ * Home content. [failedRows] names rows that could not load, so the screen can offer Retry.
+ * [featured] is the title for the big area at the top: the first title of the site's own featured
+ * list (DramaList/Show), or the first of Latest when that list fails. Null if there is neither.
+ */
+data class HomeContent(val rows: List<HomeRow>, val failedRows: List<String>, val featured: Show? = null)
 
 data class PlayerData(val url: String, val subs: List<SubtitleFile>, val resumeMs: Long)
+
+/** An episode that was checked and has a stream, with the stream address it had at that moment. */
+data class Playable(val episode: Episode, val url: String)
+
+/** How many of a title's lowest-numbered episodes [AppViewModel.findPlayable] checks. */
+private const val START_CHECKS = 3
+
+/** Titles per filtered Home rail. */
+private const val HOME_FILTERED_ROW_SIZE = 20
 
 /**
  * App-wide state. Everything here is main-thread only.
@@ -48,11 +67,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Open [dest] on top of the current screen. */
     fun push(dest: Dest) {
+        android.util.Log.d("KHdbg", "push $dest") // KHDBG
         _nav.update { it.push(dest) }
     }
 
     /** Rail selection. See [NavState.selectTab]. */
     fun selectTab(tab: RootTab) {
+        android.util.Log.d("KHdbg", "selectTab $tab") // KHDBG
         _nav.update { it.selectTab(tab) }
         prunePagers()
     }
@@ -167,33 +188,54 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         homeJob?.cancel()
         _home.value = UiState.Loading
         homeJob = viewModelScope.launch {
+            // Global feeds first, then two filtered rails from the List endpoint (its type and country
+            // filters are verified, see Catalog.kt). Rows load side by side; the screen shows them in this order.
+            val specs = listOf(
+                RowSpec("Latest") { repo.api.lastUpdate() },
+                RowSpec("Popular") { repo.api.mostView() },
+                RowSpec("Top Rating") { repo.api.topRating() },
+                RowSpec("Korean Series") {
+                    repo.list(CatalogQuery(ContentType.SERIES, Country.SOUTH_KOREA, order = SortOrder.POPULAR), 1, HOME_FILTERED_ROW_SIZE).data
+                },
+                RowSpec("Movies") {
+                    repo.list(CatalogQuery(ContentType.MOVIE, order = SortOrder.POPULAR), 1, HOME_FILTERED_ROW_SIZE).data
+                },
+                RowSpec("Anime") { repo.api.animate() },
+                RowSpec("Upcoming") { repo.api.upcoming() },
+            )
+            val (outcomes, featuredList) = coroutineScope {
+                val rowJobs = specs.map { spec -> async { suspendCatching { spec.load() } } }
+                val featuredJob = async { suspendCatching { repo.api.show() } }
+                rowJobs.awaitAll() to featuredJob.await()
+            }
             val rows = ArrayList<HomeRow>()
             val failed = ArrayList<String>()
             var lastError: Throwable? = null
-            suspend fun row(title: String, load: suspend () -> List<Show>) {
-                suspendCatching { load() }
+            specs.forEachIndexed { i, spec ->
+                outcomes[i]
                     .onSuccess { shows ->
-                        // distinctBy: stage 2 uses show ids as lazy-list keys, and duplicates would crash those.
-                        if (shows.isNotEmpty()) rows.add(HomeRow(title, shows.distinctBy { it.id }))
+                        // distinctBy: show ids are lazy-list keys, and duplicates would crash those.
+                        if (shows.isNotEmpty()) rows.add(HomeRow(spec.title, shows.distinctBy { it.id }))
                     }
                     .onFailure {
-                        Log.w("KissKH", "row '$title' failed", it)
-                        failed.add(title)
+                        Log.w("KissKH", "row '${spec.title}' failed", it)
+                        failed.add(spec.title)
                         lastError = it
                     }
             }
-            row("Latest") { repo.api.lastUpdate() }
-            row("Popular") { repo.api.mostView() }
-            row("Top Rating") { repo.api.topRating() }
-            row("Anime") { repo.api.animate() }
-            row("Upcoming") { repo.api.upcoming() }
+            featuredList.onFailure { Log.w("KissKH", "featured list failed", it) }
+            // The same title every time: first of the site's featured list, else first of Latest.
+            val featured = featuredList.getOrNull()?.firstOrNull()
+                ?: rows.firstOrNull { it.title == "Latest" }?.items?.firstOrNull()
             _home.value = when {
-                rows.isNotEmpty() -> UiState.Success(HomeContent(rows, failed))
+                rows.isNotEmpty() -> UiState.Success(HomeContent(rows, failed, featured))
                 lastError != null -> uiError(lastError!!)
                 else -> UiState.Empty()
             }
         }
     }
+
+    private class RowSpec(val title: String, val load: suspend () -> List<Show>)
 
     // ---------------------------------------------------------------- detail
 
@@ -209,6 +251,54 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun retryDetail(dramaId: Int) {
         val flow = details[dramaId] ?: return
         if (flow.value is UiState.Error) loadDetail(dramaId, flow)
+    }
+
+    // ponytail: kept for the life of the app, like details. Re-checked on its own when a failed detail is retried.
+    private val playables = HashMap<Int, MutableStateFlow<UiState<Playable>>>()
+
+    /**
+     * The first episode of this title that can be played now (see [findPlayable]), for the Home
+     * "Watch" button. Loading until the detail is in. Empty when nothing is released yet. Error when
+     * the detail or the check failed.
+     */
+    fun playable(dramaId: Int): StateFlow<UiState<Playable>> =
+        playables.getOrPut(dramaId) {
+            MutableStateFlow<UiState<Playable>>(UiState.Loading).also { flow ->
+                viewModelScope.launch {
+                    detail(dramaId).collectLatest { d ->
+                        flow.value = when (d) {
+                            UiState.Loading -> UiState.Loading
+                            is UiState.Error -> d
+                            is UiState.Empty -> UiState.Empty(d.message)
+                            is UiState.Success -> {
+                                flow.value = UiState.Loading
+                                findPlayable(d.data).fold(
+                                    onSuccess = { p -> if (p != null) UiState.Success(p) else UiState.Empty("Not released yet.") },
+                                    onFailure = { uiError(it) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    /**
+     * Looks for an episode to start with: the lowest-numbered one that has a stream. Episodes come
+     * newest first, so they are sorted here. Checks at most [START_CHECKS] of them, because a title
+     * that is not out yet has nothing playable anyway. Null means none of them is released.
+     * Fails if a check fails (for example no network).
+     */
+    suspend fun findPlayable(drama: Drama): Result<Playable?> = suspendCatching {
+        var found: Playable? = null
+        for (ep in drama.episodes.sortedBy { it.number }.take(START_CHECKS)) {
+            val url = repo.streamUrl(ep.id)
+            if (url != null) {
+                found = Playable(ep, url)
+                break
+            }
+        }
+        found
     }
 
     private fun loadDetail(dramaId: Int, flow: MutableStateFlow<UiState<Drama>>) {
@@ -244,11 +334,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // Kept after Back so the final progress save (from the player's dispose) still knows the title.
     private var nowPlaying: Dest.Player? = null
 
-    /** Open the player for [player] and find its stream. */
-    fun play(player: Dest.Player) {
+    /**
+     * Open the player for [player] and find its stream. Pass [streamUrl] when the stream was just
+     * looked up (the Detail screen checks before it opens the player), to skip a second lookup.
+     */
+    fun play(player: Dest.Player, streamUrl: String? = null) {
         nowPlaying = player
         push(player)
-        loadStream(player)
+        loadStream(player, streamUrl)
     }
 
     fun retryPlayer() {
@@ -256,11 +349,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         loadStream(p)
     }
 
-    private fun loadStream(p: Dest.Player) {
+    private fun loadStream(p: Dest.Player, known: String? = null) {
         playerJob?.cancel()
         _player.value = UiState.Loading
         playerJob = viewModelScope.launch {
-            val url = suspendCatching { repo.streamUrl(p.episodeId) }.getOrElse {
+            val url = known ?: suspendCatching { repo.streamUrl(p.episodeId) }.getOrElse {
                 Log.w("KissKH", "stream ${p.episodeId} failed", it)
                 _player.value = uiError(it)
                 return@launch
