@@ -36,6 +36,7 @@ import com.kisskh.tv.ui.components.rememberFocusRestore
 import com.kisskh.tv.ui.components.revealIndex
 import com.kisskh.tv.ui.components.screenContentPadding
 import com.kisskh.tv.ui.components.screenStart
+import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhFocusable
 import com.kisskh.tv.ui.theme.KhTheme
@@ -59,10 +60,11 @@ fun CountriesScreen(vm: AppViewModel, dest: Dest.Countries) {
     }
 
     val gap = cardGap()
+    val tv = KhTheme.formFactor == FormFactor.TV
     Column(Modifier.fillMaxSize().padding(top = KhTheme.spacing.safeVertical)) {
         Text(
             "Countries",
-            style = KhTheme.typography.headline,
+            style = if (tv) KhTheme.typography.heading else KhTheme.typography.headline,
             modifier = Modifier.padding(start = screenStart(), end = KhTheme.spacing.safeHorizontal),
         )
         LazyVerticalGrid(

@@ -1,5 +1,8 @@
 package com.kisskh.tv.ui.components
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
@@ -25,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -42,6 +46,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhFocusable
+import com.kisskh.tv.ui.theme.KhMotion
 import com.kisskh.tv.ui.theme.KhTheme
 
 /**
@@ -81,6 +86,8 @@ fun <T> FilterDropdown(
         KhChip(
             text = "$label: ${optionLabel(selected)}",
             onClick = { open = true },
+            outlined = true,
+            marked = options.isNotEmpty() && selected != options.first(),
             trailingIcon = Icons.Filled.ArrowDropDown,
             modifier = Modifier
                 .then(if (restore != null && chipKey != null) Modifier.focusIfRestoring(restore, chipKey) else Modifier)
@@ -94,15 +101,22 @@ fun <T> FilterDropdown(
                 onDismissRequest = { open = false },
                 properties = PopupProperties(focusable = true),
             ) {
-                OptionList(
-                    options = options,
-                    selected = selected,
-                    optionLabel = optionLabel,
-                    onPick = { picked ->
-                        open = false
-                        onSelect(picked)
-                    },
-                )
+                // Back closes the list and leaves the screen where it was. Registered inside the
+                // popup so it runs before the screen's own Back.
+                BackHandler { open = false }
+                val appear = remember { Animatable(0f) }
+                LaunchedEffect(Unit) { appear.animateTo(1f, tween(KhMotion.PopoverMillis, easing = KhMotion.EaseOutStrong)) }
+                Box(Modifier.graphicsLayer { alpha = appear.value }) {
+                    OptionList(
+                        options = options,
+                        selected = selected,
+                        optionLabel = optionLabel,
+                        onPick = { picked ->
+                            open = false
+                            onSelect(picked)
+                        },
+                    )
+                }
             }
         }
     }
@@ -123,7 +137,7 @@ private fun <T> OptionList(
             .shadow(12.dp, KhTheme.shapes.tile)
             .background(KhColors.Elevated, KhTheme.shapes.tile)
             .width(240.dp)
-            .heightIn(max = 300.dp)
+            .heightIn(max = 420.dp)
             .verticalScroll(rememberScrollState())
             .padding(KhTheme.spacing.s)
             .focusGroup(),

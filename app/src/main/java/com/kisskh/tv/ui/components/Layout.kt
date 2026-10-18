@@ -7,6 +7,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhTheme
 import com.kisskh.tv.ui.theme.isTelevision
 
@@ -21,17 +22,17 @@ fun rememberIsTelevision(): Boolean {
 @Composable
 fun isCompactWidth(): Boolean = !rememberIsTelevision() && LocalConfiguration.current.screenWidthDp < 600
 
-/** Left margin of screen content. The nav rail sits to the left of it. */
+/** Left margin of screen content. On TV the rail already insets the page, so this is the extra gap. */
 @Composable
-fun screenStart(): Dp = minOf(KhTheme.spacing.safeHorizontal, KhTheme.spacing.l)
+fun screenStart(): Dp = if (KhTheme.formFactor == FormFactor.TV) 20.dp else 16.dp
 
-/** Space between cards in a row or grid (more than the focus zoom grows, so neighbours never touch). */
+/** Space between cards. TV cards scale up over their neighbours; phone rows use 8 dp. */
 @Composable
-fun cardGap(): Dp = if (isCompactWidth()) 12.dp else KhTheme.spacing.m
+fun cardGap(): Dp = if (KhTheme.formFactor == FormFactor.TV) 10.dp else 8.dp
 
-/** Narrowest a card in a catalog grid may get: about 5 columns at the 960 dp TV width, 2 on a phone. */
+/** Narrowest catalog card: about 200 dp on TV (art only) and 160 dp on a phone. */
 @Composable
-fun gridCardMinWidth(): Dp = if (isCompactWidth()) 120.dp else 140.dp
+fun gridCardMinWidth(): Dp = if (KhTheme.formFactor == FormFactor.TV) 200.dp else 160.dp
 
 /** Height of the big artwork area on Detail. */
 @Composable

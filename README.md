@@ -1,19 +1,19 @@
-# KissKH TV
+# KH
 
-A native Android TV app for kisskh.co, built for Chromecast with Google TV. It talks
-directly to the site's JSON API instead of wrapping the website, so it browses and plays
-smoothly like YouTube — no web popups, banners, or redirect ads.
+A native Android app for kisskh.co. It is built for Chromecast with Google TV and also
+runs on phones. It talks directly to the site's JSON API instead of wrapping the website.
+
+Version 1.1.
 
 ## Features
 
-- Home screen with section rows: Latest, Popular, Top Rating, Anime, Upcoming
-- Browse grid with infinite paging and filters (type, country, status, order)
-- Search
-- Detail screen with synopsis and full episode list (first episode auto-focused)
-- Playback with Media3 ExoPlayer: HLS, hardware video/audio decode
-- Subtitles: fetches and decrypts the site's encrypted subtitle tracks
-- Resume: remembers your position per episode
-- Leanback launcher entry with a TV banner
+- Home with a billboard that follows the focused title, and rows for Continue Watching,
+  Latest, Popular, Top Rating, Anime, Upcoming, Korean Series, Chinese Series and Movies
+- TV Series, Movies and Countries, with filters and paging
+- Search as you type
+- Title page with synopsis and an episode list (ranges on long shows)
+- Playback with Media3: HLS and direct video, subtitles, resume
+- Phone layout with a bottom bar, and landscape playback
 
 ## How it works
 
@@ -26,20 +26,24 @@ decrypted with AES-CBC using keys recovered from the site's bundle (see `API.md`
 
 ## Build
 
-Requires JDK 17+ and the Android SDK (platform 35, build-tools 35).
+Requires JDK 21 and the Android SDK (platform 35, build-tools 35). `local.properties`
+must point `sdk.dir` at the SDK.
 
 ```
-./gradlew :app:assembleDebug
+./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ```
 
 The APK lands in `app/build/outputs/apk/debug/`.
 
-## Install on a TV
+## Install
 
 ```
-adb connect <tv-ip>:5555
-adb install app-build/outputs/apk/debug/app-debug.apk
+adb install app/build/outputs/apk/debug/app-debug.apk
 ```
+
+A debug APK is signed with the debug keystore on the machine that built it. To upgrade
+the v1.0 install and keep saved playback positions, sign with the same debug key used
+for that build. A different key will not install over the existing app.
 
 ## Disclaimer
 

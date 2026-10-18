@@ -16,6 +16,7 @@ import com.kisskh.tv.api.SortOrder
 import com.kisskh.tv.api.SubtitleFile
 import com.kisskh.tv.api.availableTabs
 import com.kisskh.tv.api.suspendCatching
+import com.kisskh.tv.ui.home.HomeRails
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -67,13 +68,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Open [dest] on top of the current screen. */
     fun push(dest: Dest) {
-        android.util.Log.d("KHdbg", "push $dest") // KHDBG
         _nav.update { it.push(dest) }
     }
 
     /** Rail selection. See [NavState.selectTab]. */
     fun selectTab(tab: RootTab) {
-        android.util.Log.d("KHdbg", "selectTab $tab") // KHDBG
         _nav.update { it.selectTab(tab) }
         prunePagers()
     }
@@ -188,21 +187,35 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         homeJob?.cancel()
         _home.value = UiState.Loading
         homeJob = viewModelScope.launch {
-            // Global feeds first, then two filtered rails from the List endpoint (its type and country
-            // filters are verified, see Catalog.kt). Rows load side by side; the screen shows them in this order.
-            val specs = listOf(
-                RowSpec("Latest") { repo.api.lastUpdate() },
-                RowSpec("Popular") { repo.api.mostView() },
-                RowSpec("Top Rating") { repo.api.topRating() },
-                RowSpec("Korean Series") {
-                    repo.list(CatalogQuery(ContentType.SERIES, Country.SOUTH_KOREA, order = SortOrder.POPULAR), 1, HOME_FILTERED_ROW_SIZE).data
-                },
-                RowSpec("Movies") {
-                    repo.list(CatalogQuery(ContentType.MOVIE, order = SortOrder.POPULAR), 1, HOME_FILTERED_ROW_SIZE).data
-                },
-                RowSpec("Anime") { repo.api.animate() },
-                RowSpec("Upcoming") { repo.api.upcoming() },
-            )
+            // Global feeds accept no type or country filter. Korean Series, Chinese Series and Movies
+            // come from DramaList/List, whose filters are verified (see Catalog.kt). Order is HomeRails.feeds.
+            val specs = HomeRails.feeds.map { title ->
+                RowSpec(title) {
+                    when (title) {
+                        HomeRails.LATEST -> repo.api.lastUpdate()
+                        HomeRails.POPULAR -> repo.api.mostView()
+                        HomeRails.TOP_RATING -> repo.api.topRating()
+                        HomeRails.ANIME -> repo.api.animate()
+                        HomeRails.UPCOMING -> repo.api.upcoming()
+                        HomeRails.KOREAN_SERIES -> repo.list(
+                            CatalogQuery(ContentType.SERIES, Country.SOUTH_KOREA, order = SortOrder.POPULAR),
+                            1,
+                            HOME_FILTERED_ROW_SIZE,
+                        ).data
+                        HomeRails.CHINESE_SERIES -> repo.list(
+                            CatalogQuery(ContentType.SERIES, Country.CHINA, order = SortOrder.POPULAR),
+                            1,
+                            HOME_FILTERED_ROW_SIZE,
+                        ).data
+                        HomeRails.MOVIES -> repo.list(
+                            CatalogQuery(ContentType.MOVIE, order = SortOrder.POPULAR),
+                            1,
+                            HOME_FILTERED_ROW_SIZE,
+                        ).data
+                        else -> emptyList()
+                    }
+                }
+            }
             val (outcomes, featuredList) = coroutineScope {
                 val rowJobs = specs.map { spec -> async { suspendCatching { spec.load() } } }
                 val featuredJob = async { suspendCatching { repo.api.show() } }

@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">KH</string>
     <string name="kh_logo_description">KH</string>
+    <string name="player_play">Play</string>
+    <string name="player_pause">Pause</string>
+    <string name="player_rewind">Rewind 10 seconds</string>
+    <string name="player_forward">Forward 10 seconds</string>
+    <string name="player_subtitles">Subtitles</string>
 </resources>

@@ -191,6 +191,19 @@ class WatchHistoryTest {
     }
 
     @Test
+    fun twoTitlesKeepSeparateResumeKeys() {
+        now = 1
+        h.record(1, 10, 1f, "A", null, 30_000, 100_000)
+        now = 2
+        h.record(2, 20, 2.5f, "B", null, 40_000, 100_000)
+        assertEquals(30_000L, resume.map["ep_10"])
+        assertEquals(40_000L, resume.map["ep_20"])
+        assertEquals(10, h.entry(1)!!.episodeId)
+        assertEquals(2.5f, h.entry(2)!!.episodeNumber)
+        assertEquals(listOf(2, 1), h.recent().map { it.dramaId })
+    }
+
+    @Test
     fun titleAndThumbnailMayBeMissing() {
         h.record(9, 90, 1f, null, null, 30_000, 100_000)
         val e = h.entry(9)!!
