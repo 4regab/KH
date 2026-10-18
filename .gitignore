@@ -1,0 +1,12 @@
+.gradle/
+build/
+/local.properties
+*.iml
+.idea/
+/toolchain/
+/probe/
+*.apk
+*.bin
+*.zip
+captures/
+.cxx/
