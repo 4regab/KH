@@ -6,4 +6,8 @@
     <string name="player_rewind">Rewind 10 seconds</string>
     <string name="player_forward">Forward 10 seconds</string>
     <string name="player_subtitles">Subtitles</string>
+    <string name="player_back">Back</string>
+    <string name="player_home">Home</string>
+    <string name="player_episodes">Episodes</string>
+    <string name="player_next">Next episode</string>
 </resources>

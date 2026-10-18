@@ -50,6 +50,14 @@ fun VideoPlayer(
     label: String,
     onProgress: (pos: Long, dur: Long) -> Unit,
     onPlaybackError: (String) -> Unit,
+    /** Leave the player (same as system Back). */
+    onBack: () -> Unit,
+    /** Leave the player and go to the Home screen. */
+    onHome: () -> Unit,
+    /** Open the episode list. */
+    onEpisodes: () -> Unit,
+    /** Play the next episode, or null when there is none (the button is hidden). */
+    onNext: (() -> Unit)?,
     /** When false, Back is left to the screen (an error is already covering the video). */
     hideControlsOnBack: Boolean = true,
 ) {
@@ -165,6 +173,13 @@ fun VideoPlayer(
             update = { view ->
                 view.findViewById<TextView>(R.id.kh_player_title).text = title
                 view.findViewById<TextView>(R.id.kh_player_label).text = label
+                view.findViewById<View>(R.id.kh_player_back).setOnClickListener { onBack() }
+                view.findViewById<View>(R.id.kh_player_home).setOnClickListener { onHome() }
+                view.findViewById<View>(R.id.kh_player_episodes).setOnClickListener { onEpisodes() }
+                view.findViewById<View>(R.id.kh_player_next).apply {
+                    visibility = if (onNext != null) View.VISIBLE else View.GONE
+                    setOnClickListener { onNext?.invoke() }
+                }
             },
         )
     }

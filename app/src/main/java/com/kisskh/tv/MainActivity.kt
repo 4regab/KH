@@ -26,12 +26,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import androidx.tv.material3.Text
+import com.kisskh.tv.player.EpisodePicker
 import com.kisskh.tv.player.VideoPlayer
 import com.kisskh.tv.ui.AppViewModel
 import com.kisskh.tv.ui.Dest
 import com.kisskh.tv.ui.UiState
 import com.kisskh.tv.ui.components.KhButton
 import com.kisskh.tv.ui.components.LoadingState
+import com.kisskh.tv.ui.orderedEpisodes
+import com.kisskh.tv.ui.playerDest
 import com.kisskh.tv.ui.playerOverlayLabel
 import com.kisskh.tv.ui.shell.KhApp
 import com.kisskh.tv.ui.theme.KhColors
@@ -60,17 +63,31 @@ class MainActivity : ComponentActivity() {
 private fun PlayerHost(vm: AppViewModel, dest: Dest.Player) {
     val state by vm.playerState.collectAsStateWithLifecycle()
     var failed by remember(dest.episodeId) { mutableStateOf<String?>(null) }
+    var showEpisodes by remember(dest.episodeId) { mutableStateOf(false) }
+    // The title's detail (loaded once, shared with the title page) gives the episode list and the next episode.
+    val detail by remember(dest.dramaId) { vm.detail(dest.dramaId) }.collectAsStateWithLifecycle()
+    val drama = (detail as? UiState.Success)?.data
+    val next = remember(drama, dest.episodeId) {
+        val ordered = drama?.orderedEpisodes().orEmpty()
+        val i = ordered.indexOfFirst { it.id == dest.episodeId }
+        if (drama != null && i >= 0) ordered.getOrNull(i + 1)?.let { drama to it } else null
+    }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (val s = state) {
-            UiState.Loading -> LoadingState(message = "Preparing")
+            UiState.Loading -> {
+                LoadingState(message = "Preparing")
+                KhButton("Back", onClick = { vm.onBack() }, modifier = Modifier.align(Alignment.TopStart).padding(24.dp))
+            }
             is UiState.Empty -> PlayerMessage(
                 message = s.message ?: "This episode isn't released yet.",
                 onBack = { vm.onBack() },
+                onHome = { vm.goHome() },
             )
             is UiState.Error -> PlayerMessage(
                 message = s.message,
                 onRetry = { vm.retryPlayer() },
                 onBack = { vm.onBack() },
+                onHome = { vm.goHome() },
             )
             is UiState.Success -> {
                 VideoPlayer(
@@ -81,6 +98,10 @@ private fun PlayerHost(vm: AppViewModel, dest: Dest.Player) {
                     label = playerOverlayLabel(dest.label),
                     onProgress = { pos, dur -> vm.savePosition(dest.episodeId, pos, dur) },
                     onPlaybackError = { failed = it },
+                    onBack = { vm.onBack() },
+                    onHome = { vm.goHome() },
+                    onEpisodes = { showEpisodes = true },
+                    onNext = next?.let { (d, ep) -> { vm.switchEpisode(d.playerDest(ep)) } },
                     hideControlsOnBack = failed == null,
                 )
                 val message = failed
@@ -92,7 +113,20 @@ private fun PlayerHost(vm: AppViewModel, dest: Dest.Player) {
                             vm.retryPlayer()
                         },
                         onBack = { vm.onBack() },
+                        onHome = { vm.goHome() },
                         modifier = Modifier.background(Color.Black.copy(alpha = 0.78f)),
+                    )
+                }
+                if (showEpisodes) {
+                    EpisodePicker(
+                        vm = vm,
+                        dramaId = dest.dramaId,
+                        currentEpisodeId = dest.episodeId,
+                        onPick = { d, ep ->
+                            showEpisodes = false
+                            if (ep.id != dest.episodeId) vm.switchEpisode(d.playerDest(ep))
+                        },
+                        onClose = { showEpisodes = false },
                     )
                 }
             }
@@ -104,6 +138,7 @@ private fun PlayerHost(vm: AppViewModel, dest: Dest.Player) {
 private fun PlayerMessage(
     message: String,
     onBack: () -> Unit,
+    onHome: () -> Unit,
     modifier: Modifier = Modifier,
     onRetry: (() -> Unit)? = null,
 ) {
@@ -122,6 +157,7 @@ private fun PlayerMessage(
                 KhButton("Retry", onClick = onRetry, primary = true)
             }
             KhButton("Back", onClick = onBack)
+            KhButton("Home", onClick = onHome)
         }
     }
 }

@@ -344,17 +344,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private var playerJob: Job? = null
 
-    // Kept after Back so the final progress save (from the player's dispose) still knows the title.
-    private var nowPlaying: Dest.Player? = null
+    // Every episode opened this session, so the final save from a player that is being replaced
+    // (another episode picked, Home pressed) still knows its title.
+    private val played = HashMap<Int, Dest.Player>()
 
     /**
      * Open the player for [player] and find its stream. Pass [streamUrl] when the stream was just
      * looked up (the Detail screen checks before it opens the player), to skip a second lookup.
      */
     fun play(player: Dest.Player, streamUrl: String? = null) {
-        nowPlaying = player
+        played[player.episodeId] = player
         push(player)
         loadStream(player, streamUrl)
+    }
+
+    /** From inside the player: play [player] in place of the current episode, so Back still goes to the title page. */
+    fun switchEpisode(player: Dest.Player) {
+        if (_nav.value.current !is Dest.Player) return
+        played[player.episodeId] = player
+        _nav.update { it.updateCurrent { player } }
+        loadStream(player)
+    }
+
+    /** From inside the player: stop and go to Home. */
+    fun goHome() {
+        val playing = _nav.value.current is Dest.Player
+        _nav.update { it.selectTab(RootTab.HOME) }
+        if (playing) stopPlayback()
+        prunePagers()
     }
 
     fun retryPlayer() {
@@ -390,8 +407,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * for the episode opened with [play], the title's watch history.
      */
     fun savePosition(episodeId: Int, positionMs: Long, durationMs: Long) {
-        val p = nowPlaying
-        if (p != null && p.episodeId == episodeId) {
+        val p = played[episodeId]
+        if (p != null) {
             repo.history.record(p.dramaId, episodeId, p.episodeNumber, p.title, p.thumbnail, positionMs, durationMs)
         } else {
             repo.savePosition(episodeId, positionMs, durationMs)
