@@ -34,15 +34,18 @@ fun HomeScreen(vm: AppViewModel) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("KissKH TV", color = Color(0xFFFF4081), fontSize = 28.sp, modifier = Modifier.padding(end = 24.dp))
-                Button(onClick = { vm.go(Screen.Search) }, modifier = Modifier.padding(end = 12.dp)) { Text("Search") }
-                Button(onClick = { vm.go(Screen.Browse); vm.resetBrowse() }) { Text("Browse") }
+                val openSearch = { vm.go(Screen.Search) }
+                val openBrowse = { vm.go(Screen.Browse); vm.resetBrowse() }
+                Button(onClick = openSearch, modifier = Modifier.padding(end = 12.dp).onTap(openSearch)) { Text("Search") }
+                Button(onClick = openBrowse, modifier = Modifier.onTap(openBrowse)) { Text("Browse") }
             }
         }
         if (error != null) {
             item {
                 Column(Modifier.fillMaxWidth().padding(32.dp)) {
                     Text(error ?: "", color = Color.White, fontSize = 18.sp)
-                    Button(onClick = { vm.retryHome() }, modifier = Modifier.padding(top = 12.dp)) { Text("Retry") }
+                    val retry = { vm.retryHome() }
+                    Button(onClick = retry, modifier = Modifier.padding(top = 12.dp).onTap(retry)) { Text("Retry") }
                 }
             }
         }

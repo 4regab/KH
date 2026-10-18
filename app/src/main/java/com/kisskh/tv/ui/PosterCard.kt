@@ -32,7 +32,7 @@ fun PosterCard(show: Show, onClick: () -> Unit) {
         Card(
             onClick = onClick,
             scale = CardDefaults.scale(focusedScale = 1.1f),
-            modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f),
+            modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).onTap(onClick),
         ) {
             Box(Modifier.fillMaxSize()) {
                 AsyncImage(

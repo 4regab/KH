@@ -67,9 +67,10 @@ fun DetailScreen(vm: AppViewModel) {
                     if (index == 0) {
                         LaunchedEffect(d.id) { runCatching { focusRequester.requestFocus() } }
                     }
+                    val playEp = { vm.play(ep.id, "${d.title} — EP $num") }
                     Card(
-                        onClick = { vm.play(ep.id, "${d.title} — EP $num") },
-                        modifier = Modifier.fillMaxWidth().then(
+                        onClick = playEp,
+                        modifier = Modifier.fillMaxWidth().onTap(playEp).then(
                             if (index == 0) Modifier.focusRequester(focusRequester) else Modifier
                         ),
                     ) {
