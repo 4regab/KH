@@ -33,11 +33,7 @@ fun cardGap(): Dp = if (isCompactWidth()) 12.dp else KhTheme.spacing.m
 @Composable
 fun gridCardMinWidth(): Dp = if (isCompactWidth()) 120.dp else 140.dp
 
-/** Card width on Home rails. */
-@Composable
-fun rowCardWidth(): Dp = if (isCompactWidth()) 150.dp else 184.dp
-
-/** Height of the big artwork area on Home and Detail. */
+/** Height of the big artwork area on Detail. */
 @Composable
 fun heroHeight(): Dp = (LocalConfiguration.current.screenHeightDp.dp * 0.62f).coerceIn(280.dp, 440.dp)
 

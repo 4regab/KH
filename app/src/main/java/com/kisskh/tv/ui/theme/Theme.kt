@@ -10,7 +10,6 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ColorScheme
 import androidx.tv.material3.LocalContentColor
@@ -32,6 +31,7 @@ object KhTheme {
     val spacing: KhSpacing @Composable @ReadOnlyComposable get() = LocalKhSpacing.current
     val shapes: KhShapes @Composable @ReadOnlyComposable get() = LocalKhShapes.current
     val focus: KhFocusSpec @Composable @ReadOnlyComposable get() = LocalKhFocus.current
+    val formFactor: FormFactor @Composable @ReadOnlyComposable get() = LocalFormFactor.current
 }
 
 /** The dark KH colour scheme for tv-material3 components, mapped from [KhColors]. */
@@ -67,13 +67,13 @@ fun isTelevision(context: Context): Boolean =
         Configuration.UI_MODE_TYPE_TELEVISION
 
 /**
- * Wrap the whole app in this. It sets the dark colour scheme, text styles, shapes, spacing and focus
- * look. On a phone narrower than 600 dp, text is a little smaller and margins tighter.
+ * Wrap the whole app in this. It sets the dark colour scheme, text styles, shapes, spacing, focus
+ * look and the [FormFactor]. On a phone narrower than 600 dp, text is a little smaller and margins tighter.
  */
 @Composable
 fun KhTheme(content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val isTv = remember(context) { isTelevision(context) }
+    val formFactor = rememberFormFactor()
+    val isTv = formFactor == FormFactor.TV
     val compact = !isTv && LocalConfiguration.current.screenWidthDp < 600
     val typography = remember(compact) { khTypography(if (compact) 0.85f else 1f) }
     val spacing = remember(isTv, compact) { khSpacing(isTv, compact) }
@@ -107,6 +107,7 @@ fun KhTheme(content: @Composable () -> Unit) {
         ),
     ) {
         CompositionLocalProvider(
+            LocalFormFactor provides formFactor,
             LocalKhTypography provides typography,
             LocalKhSpacing provides spacing,
             LocalKhShapes provides shapes,

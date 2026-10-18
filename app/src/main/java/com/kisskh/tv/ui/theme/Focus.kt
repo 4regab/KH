@@ -1,11 +1,11 @@
 package com.kisskh.tv.ui.theme
 
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
@@ -27,18 +27,18 @@ import androidx.compose.ui.unit.dp
 
 /**
  * How focus looks everywhere in KH: a small zoom, a bright outline, a soft shadow, all easing in
- * over [durationMillis] (150-220 ms). Red is never used for focus.
+ * over [durationMillis] with [KhMotion.EaseOutStrong]. Red is never used for focus.
  *
  * A focused item grows by [scale] and its outline sits half outside its bounds, so leave
  * [KhSpacing.focusBleed] around it or the parent will cut it off.
  */
 @Immutable
 data class KhFocusSpec(
-    val scale: Float = 1.07f,
-    val outlineWidth: Dp = 3.dp,
+    val scale: Float = 1.08f,
+    val outlineWidth: Dp = 2.dp,
     val outlineColor: Color = KhColors.Outline,
-    val elevation: Dp = 12.dp,
-    val durationMillis: Int = 180,
+    val elevation: Dp = 8.dp,
+    val durationMillis: Int = KhMotion.FocusMillis,
 )
 
 /**
@@ -49,13 +49,23 @@ data class KhFocusSpec(
 fun rememberKhFocusProgress(focused: Boolean, spec: KhFocusSpec = KhTheme.focus): State<Float> =
     animateFloatAsState(
         targetValue = if (focused) 1f else 0f,
-        animationSpec = tween(spec.durationMillis, easing = FastOutSlowInEasing),
+        animationSpec = tween(spec.durationMillis, easing = KhMotion.EaseOutStrong),
         label = "khFocus",
+    )
+
+/** 0 when not pressed, 1 while pressed (finger down or OK key down). Drives the 0.96 press scale. */
+@Composable
+fun rememberKhPressProgress(pressed: Boolean): State<Float> =
+    animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = KhMotion.press(),
+        label = "khPress",
     )
 
 /**
  * Draws the KH focus look, driven by [progress] (0..1, see [rememberKhFocusProgress]):
  * zoom and shadow when [scaleAndLift] is true, plus the outline (drawn over the content).
+ * [press] (0..1) shrinks the item to [KhMotion.PressScale], whatever its focus state.
  * Put it first in the modifier chain, before clip or background, so the outline is not clipped.
  */
 fun Modifier.khFocusEffect(
@@ -63,18 +73,20 @@ fun Modifier.khFocusEffect(
     shape: Shape,
     spec: KhFocusSpec = KhFocusSpec(),
     scaleAndLift: Boolean = true,
+    press: () -> Float = { 0f },
 ): Modifier = this
-    .then(
-        if (!scaleAndLift) Modifier else Modifier.graphicsLayer {
-            val p = progress()
-            val s = 1f + (spec.scale - 1f) * p
-            scaleX = s
-            scaleY = s
+    .graphicsLayer {
+        val p = progress()
+        val focusScale = if (scaleAndLift) 1f + (spec.scale - 1f) * p else 1f
+        val s = focusScale * (1f - (1f - KhMotion.PressScale) * press())
+        scaleX = s
+        scaleY = s
+        if (scaleAndLift) {
             shadowElevation = spec.elevation.toPx() * p
             this.shape = shape
             clip = false
         }
-    )
+    }
     .drawWithContent {
         drawContent()
         val p = progress()
@@ -98,6 +110,7 @@ fun Modifier.khFocusBorder(
 /**
  * A focusable, clickable box with the KH focus look. It works with D-pad (Select) and touch (tap)
  * and fires [onClick] once either way. Use it for cards, tiles, chips and list rows.
+ * Pressing it (finger or Select) shrinks it a little for 100 ms.
  *
  * [content] gets `focused` so it can change text or colours. Add size, background and semantics
  * (`contentDescription`) through [modifier]. The content is clipped to [shape].
@@ -113,11 +126,13 @@ fun KhFocusable(
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     val focused by interactionSource.collectIsFocusedAsState()
+    val pressed by interactionSource.collectIsPressedAsState()
     val progress = rememberKhFocusProgress(focused)
+    val press = rememberKhPressProgress(pressed)
     val spec = KhTheme.focus
     Box(
         modifier = modifier
-            .khFocusEffect({ progress.value }, shape, spec, scaleAndLift)
+            .khFocusEffect({ progress.value }, shape, spec, scaleAndLift, { press.value })
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,

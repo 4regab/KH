@@ -28,6 +28,12 @@ object KhColors {
 
     /** A dim layer over artwork or a screen behind a dialog. */
     val Scrim = Color(0xCC09090B)
+
+    /** Behind a small label on top of artwork (badges). Black at 70%. */
+    val BadgeScrim = Color(0xB3000000)
+
+    /** Secondary billboard button ("More info"): #6D6D6E at 70%. */
+    val ButtonGrey = Color(0xB36D6D6E)
 }
 
 /** Fades that keep text readable on top of artwork. Both end in [KhColors.Background]. */
