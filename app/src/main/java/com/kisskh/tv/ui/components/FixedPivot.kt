@@ -23,3 +23,11 @@ class FixedPivotSpec(
 ) : BringIntoViewSpec {
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = offset - pivotPx
 }
+
+/**
+ * Lets a parent list ignore focus scrolling, so the screen can scroll a whole row to a fixed spot
+ * itself. Used by the Home column: the focused row is moved by hand, and each row scrolls itself.
+ */
+object NoAutoScrollSpec : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
+}

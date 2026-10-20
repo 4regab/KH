@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -132,6 +133,7 @@ fun KhFocusable(
     val spec = KhTheme.focus
     Box(
         modifier = modifier
+            .zIndex(if (focused) 1f else 0f)
             .khFocusEffect({ progress.value }, shape, spec, scaleAndLift, { press.value })
             .clickable(
                 interactionSource = interactionSource,

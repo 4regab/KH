@@ -22,15 +22,17 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.tv.material3.Text
 import com.kisskh.tv.api.Show
 import com.kisskh.tv.ui.FocusKeys
+import com.kisskh.tv.ui.components.ArtCard
 import com.kisskh.tv.ui.components.FocusRestore
 import com.kisskh.tv.ui.components.FocusTracker
 import com.kisskh.tv.ui.components.KhButton
 import com.kisskh.tv.ui.components.KhSpinner
-import com.kisskh.tv.ui.components.ShowCard
+import com.kisskh.tv.ui.components.TitleCard
 import com.kisskh.tv.ui.components.cardGap
 import com.kisskh.tv.ui.components.focusIfRestoring
 import com.kisskh.tv.ui.components.gridCardMinWidth
 import com.kisskh.tv.ui.components.screenContentPadding
+import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhTheme
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -38,16 +40,9 @@ import kotlinx.coroutines.flow.filter
 
 /** What to show under the last row of a [GridScreen]. */
 sealed interface GridFooter {
-    /** Nothing: the list is not paged (search results). */
     data object None : GridFooter
-
-    /** The next page is loading. */
     data object Loading : GridFooter
-
-    /** The next page failed. The items already loaded stay. */
     data class Failed(val onRetry: () -> Unit) : GridFooter
-
-    /** Everything has been loaded. */
     data object End : GridFooter
 }
 
@@ -55,14 +50,8 @@ sealed interface GridFooter {
 private const val LOAD_MORE_AHEAD = 12
 
 /**
- * A grid of title cards. The columns adapt to the width (about 5 on a 960 dp TV, 2 on a phone).
- * It is used by the catalog screens (paged) and by Search.
- *
- * - Cards have stable keys (the title id), so scroll and focus survive list changes.
- * - [restore] gives focus back to the card the user came from; [tracker] remembers the focused card.
- * - [onLoadMore] is called when the user nears the end. It is safe to call it often.
- * - [footer] shows the loading, retry or end-of-results line.
- * - [firstItemRequester] lets the screen move focus into the grid (Search does that).
+ * A grid of title cards. TV cards are art only (the screen names the focused one). Phone cards
+ * carry the title underneath. Columns adapt to the width.
  */
 @Composable
 fun GridScreen(
@@ -74,10 +63,11 @@ fun GridScreen(
     modifier: Modifier = Modifier,
     footer: GridFooter = GridFooter.None,
     onLoadMore: () -> Unit = {},
-    showEpisodeCount: Boolean = true,
+    onFocusedShow: (Show) -> Unit = {},
     firstItemRequester: FocusRequester? = null,
 ) {
     val gap = cardGap()
+    val artOnly = KhTheme.formFactor == FormFactor.TV
     LazyVerticalGrid(
         columns = GridCells.Adaptive(gridCardMinWidth()),
         state = state,
@@ -88,16 +78,19 @@ fun GridScreen(
     ) {
         itemsIndexed(items, key = { _, show -> show.id }, contentType = { _, _ -> "card" }) { index, show ->
             val key = FocusKeys.show(show.id)
-            ShowCard(
-                show = show,
-                onClick = { onOpen(show) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusIfRestoring(restore, key)
-                    .then(if (index == 0 && firstItemRequester != null) Modifier.focusRequester(firstItemRequester) else Modifier),
-                showEpisodeCount = showEpisodeCount,
-                onFocused = { tracker.key = key },
-            )
+            val cardMod = Modifier
+                .fillMaxWidth()
+                .focusIfRestoring(restore, key)
+                .then(if (index == 0 && firstItemRequester != null) Modifier.focusRequester(firstItemRequester) else Modifier)
+            val focused = {
+                tracker.key = key
+                onFocusedShow(show)
+            }
+            if (artOnly) {
+                ArtCard(show = show, onClick = { onOpen(show) }, modifier = cardMod, onFocused = focused)
+            } else {
+                TitleCard(show = show, onClick = { onOpen(show) }, modifier = cardMod, onFocused = focused)
+            }
         }
         when (footer) {
             GridFooter.None -> Unit
@@ -121,8 +114,6 @@ fun GridScreen(
         }
     }
 
-    // Near the end of what is loaded: ask for more. Restarts when the item count changes, so a page that
-    // arrives and leaves the user still near the end triggers the next one.
     val loadMore = rememberUpdatedState(onLoadMore)
     LaunchedEffect(state, items.size) {
         snapshotFlow {

@@ -2,6 +2,7 @@ package com.kisskh.tv.ui
 
 import com.kisskh.tv.api.Drama
 import com.kisskh.tv.api.Episode
+import com.kisskh.tv.api.WatchEntry
 import com.kisskh.tv.ui.components.dateOnly
 import com.kisskh.tv.ui.components.formatEpisodeNumber
 import com.kisskh.tv.ui.components.formatPosition
@@ -54,5 +55,54 @@ class PlaybackFormatTest {
         val parts = Drama(id = 3, title = "C", type = "Movie", episodes = eps(2f, 1f))
         assertEquals("Part 2", parts.episodeLabel(parts.episodes[0]))
         assertEquals("Part 1", parts.episodeLabel(parts.episodes[1]))
+    }
+
+    @Test fun billboardLineUsesYearThenTypeCountryCountAndStatus() {
+        val series = Drama(
+            id = 1, title = "A", type = "TVSeries", country = "South Korea", status = "Ongoing",
+            releaseDate = "2026-10-08T17:34:37", episodes = eps(2f, 1f),
+        )
+        assertEquals(
+            "2026  •  TV Series  •  South Korea  •  2 episodes  •  Ongoing",
+            series.billboardLine(),
+        )
+        assertEquals("Movie", Drama(id = 2, title = "B", type = "Movie", episodes = eps(1f)).billboardLine())
+    }
+
+    @Test fun playerOverlayShortensEpisodeLabelsOnly() {
+        assertEquals("EP 12", playerOverlayLabel("Episode 12"))
+        assertEquals("EP 29.6", playerOverlayLabel("Episode 29.6"))
+        assertEquals("Movie", playerOverlayLabel("Movie"))
+        assertEquals("Part 2", playerOverlayLabel("Part 2"))
+    }
+
+    @Test fun primaryActionResumesTheSavedEpisode() {
+        val series = Drama(id = 1, title = "A", type = "TVSeries", episodes = eps(1f, 2f, 3f))
+        val ordered = series.orderedEpisodes()
+        val entry = WatchEntry(1, ordered[1].id, 2f, 40_000, 100_000, 5, "A", null, finished = false)
+        val action = primaryAction(series, ordered, entry)!!
+        assertEquals("Resume EP 2", action.label)
+        assertEquals(ordered[1].id, action.episode!!.id)
+    }
+
+    @Test fun primaryActionOffersTheNextEpisodeAfterAFinishedOne() {
+        val series = Drama(id = 1, title = "A", type = "TVSeries", episodes = eps(1f, 2f))
+        val ordered = series.orderedEpisodes()
+        val entry = WatchEntry(1, ordered[0].id, 1f, 0, 100_000, 5, "A", null, finished = true)
+        val action = primaryAction(series, ordered, entry)!!
+        assertEquals("Play EP 2", action.label)
+        assertEquals(ordered[1].id, action.episode!!.id)
+    }
+
+    @Test fun primaryActionForASingleMovieDoesNotInventParts() {
+        val movie = Drama(id = 2, title = "B", type = "Movie", episodes = eps(1f))
+        val action = primaryAction(movie, movie.orderedEpisodes(), null)!!
+        assertEquals("Watch movie", action.label)
+        assertNull(action.episode)
+    }
+
+    @Test fun primaryActionIsNullWhenThereAreNoEpisodes() {
+        val drama = Drama(id = 3, title = "C", type = "TVSeries")
+        assertNull(primaryAction(drama, emptyList(), null))
     }
 }

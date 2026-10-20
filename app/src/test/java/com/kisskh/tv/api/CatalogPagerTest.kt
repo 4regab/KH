@@ -274,6 +274,26 @@ class CatalogPagerTest {
     }
 
     @Test
+    fun latePageTwoForAnOldQueryDoesNotAppend() = runTest {
+        val page2 = CompletableDeferred<ListPage>()
+        val src = FakeCatalogSource { q, page, size ->
+            if (q == series && page == 2) lateAnswer(page2)
+            else fakePage(total = 10, page = page, size = size, base = if (q == movies) 100 else 0)
+        }
+        val p = pager(src)
+        p.loadNext(); runCurrent()
+        p.loadNext(); runCurrent() // series page 2 is still out
+        p.setQuery(movies); runCurrent()
+        assertEquals(listOf(101, 102), p.ids())
+
+        page2.complete(fakePage(total = 10, page = 2, size = 2)); runCurrent()
+        assertEquals(movies, p.state.value.query)
+        assertEquals(listOf(101, 102), p.ids())
+        assertFalse(p.state.value.loading)
+        assertNull(p.state.value.error)
+    }
+
+    @Test
     fun cancelStopsLoadingAndDropsTheAnswer() = runTest {
         val gate = CompletableDeferred<ListPage>()
         val p = pager(FakeCatalogSource { _, _, _ -> lateAnswer(gate) })

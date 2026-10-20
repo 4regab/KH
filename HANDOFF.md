@@ -6,14 +6,13 @@ Kotlin, Jetpack Compose, Compose for TV Material, Media3 ExoPlayer, Coil, Retrof
 Package and applicationId stay `com.kisskh.tv` (keeps installs and saved data compatible).
 The visible brand is being changed to "KH".
 
-## State right now (unfinished)
-- `master` now holds the in-progress KH redesign, merged from branch `kh-redesign`.
-- The last commit is an unbuilt WIP snapshot. It was not compiled or tested before the push.
-  Run a build first and fix any compile errors.
-- The last version confirmed working on a device was the original "KissKH TV" UI (commit `cc99857`):
-  playback, subtitles, resume, touch taps and phone layout all worked then.
-- The user rejected the first KH redesign pass (the screens in `../screens/`) as generic "Disney+-like".
-  They want a Netflix-style TV and phone UI. The full target spec is in the "Spec" section below.
+## State right now
+- Branch `kh-netflix` implements the Netflix-style TV and phone UI described in the spec below.
+  Version is `versionName` 1.1, `versionCode` 2.
+- The last version confirmed working on a device before this redesign was the original "KissKH TV"
+  UI (commit `cc99857`): playback, subtitles, resume, touch taps and phone layout all worked then.
+- The first KH redesign pass was rejected as generic "Disney+-like" (titles under TV cards, episode
+  chip grids, a rail that always shows labels). Do not ship that look.
 
 ## Working parts you should keep
 - `api/KeyService.kt`: makes the `kkey` that the stream and subtitle endpoints need. It runs the site's live
@@ -29,7 +28,6 @@ The visible brand is being changed to "KH".
 - `ui/Touch.kt`: tv-material3 Card and Button only react to the remote's OK key, never to touch.
   `Modifier.onTap` adds touch taps for phones.
 - `ui/theme/*`: KH design tokens (colors, type, spacing, focus, motion, form factor).
-  The newest files (Motion, FormFactor, components/Cards, components/FixedPivot) are half-finished.
 
 ## Verified catalog facts
 Full details are in `API.md` ("Verified catalog mapping") and `docs/categories*.txt`.

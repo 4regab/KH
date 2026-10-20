@@ -2,7 +2,9 @@
 
 package com.kisskh.tv.ui.search
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -10,7 +12,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -43,6 +47,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -61,15 +66,19 @@ import com.kisskh.tv.ui.Dest
 import com.kisskh.tv.ui.FocusKeys
 import com.kisskh.tv.ui.UiState
 import com.kisskh.tv.ui.catalog.GridScreen
+import com.kisskh.tv.api.Show
 import com.kisskh.tv.ui.components.EmptyState
 import com.kisskh.tv.ui.components.ErrorState
 import com.kisskh.tv.ui.components.FocusTracker
+import com.kisskh.tv.ui.components.FocusedTitleLine
 import com.kisskh.tv.ui.components.LoadingState
+import com.kisskh.tv.ui.components.rememberFocusedYear
 import com.kisskh.tv.ui.components.RegisterFocusSaver
 import com.kisskh.tv.ui.components.focusIfRestoring
 import com.kisskh.tv.ui.components.rememberFocusRestore
 import com.kisskh.tv.ui.components.revealIndex
 import com.kisskh.tv.ui.components.screenStart
+import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhFocusable
 import com.kisskh.tv.ui.theme.KhTheme
@@ -108,6 +117,13 @@ fun SearchScreen(vm: AppViewModel, dest: Dest.Search) {
     val firstResult = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     var focusResultsWhenReady by remember { mutableStateOf(false) }
+    val tv = KhTheme.formFactor == FormFactor.TV
+    val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    // Back closes the keyboard before it leaves Search.
+    BackHandler(enabled = imeOpen) { keyboard?.hide() }
+
+    var focusedShow by remember { mutableStateOf<Show?>(null) }
+    val focusedYear = rememberFocusedYear(vm, if (tv) focusedShow?.id else null)
 
     // The keyboard's search key was pressed: go to the results, now or as soon as they arrive.
     LaunchedEffect(focusResultsWhenReady, state.result) {
@@ -144,7 +160,7 @@ fun SearchScreen(vm: AppViewModel, dest: Dest.Search) {
             Modifier.padding(start = screenStart(), end = KhTheme.spacing.safeHorizontal),
             verticalArrangement = Arrangement.spacedBy(KhTheme.spacing.s),
         ) {
-            Text("Search", style = KhTheme.typography.headline)
+            Text("Search", style = if (tv) KhTheme.typography.heading else KhTheme.typography.headline)
             SearchField(
                 value = field,
                 onValueChange = { next ->
@@ -166,7 +182,15 @@ fun SearchScreen(vm: AppViewModel, dest: Dest.Search) {
                     .focusRequester(fieldRequester)
                     .onFocusChanged { if (it.isFocused) tracker.key = SEARCH_FIELD },
                 clearModifier = Modifier.onFocusChanged { if (it.isFocused) tracker.key = SEARCH_CLEAR },
+                pill = !tv,
             )
+            if (tv && state.result is UiState.Success) {
+                FocusedTitleLine(
+                    title = focusedShow?.title,
+                    year = focusedYear,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (val r = state.result) {
@@ -185,6 +209,7 @@ fun SearchScreen(vm: AppViewModel, dest: Dest.Search) {
                     },
                     // The search answer has no type field, so no type is shown on the cards.
                     firstItemRequester = firstResult,
+                    onFocusedShow = { focusedShow = it },
                 )
             }
         }
@@ -199,11 +224,13 @@ private fun SearchField(
     onSearch: () -> Unit,
     fieldModifier: Modifier,
     clearModifier: Modifier,
+    pill: Boolean,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val progress = rememberKhFocusProgress(focused)
     val focusManager = LocalFocusManager.current
+    val shape = if (pill) KhTheme.shapes.chip else KhTheme.shapes.field
 
     Row(
         Modifier.padding(KhTheme.spacing.xs),
@@ -213,11 +240,18 @@ private fun SearchField(
         Row(
             Modifier
                 .weight(1f)
-                .height(52.dp)
-                .khFocusBorder({ progress.value }, KhTheme.shapes.field)
-                .clip(KhTheme.shapes.field)
+                .height(if (pill) 48.dp else 52.dp)
+                .then(
+                    if (pill && !focused) {
+                        Modifier.border(1.dp, KhColors.ChipOutline, shape)
+                    } else {
+                        Modifier
+                    },
+                )
+                .khFocusBorder({ progress.value }, shape)
+                .clip(shape)
                 .background(KhColors.Surface)
-                .padding(horizontal = KhTheme.spacing.m),
+                .padding(horizontal = if (pill) 18.dp else KhTheme.spacing.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(painterResource(R.drawable.ic_nav_search), contentDescription = null, tint = KhColors.TextSecondary, modifier = Modifier.size(24.dp))

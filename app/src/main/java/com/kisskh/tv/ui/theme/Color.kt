@@ -34,15 +34,24 @@ object KhColors {
 
     /** Secondary billboard button ("More info"): #6D6D6E at 70%. */
     val ButtonGrey = Color(0xB36D6D6E)
+
+    /** Outline of a filter chip that is not focused. */
+    val ChipOutline = Color(0xFF3A3A42)
+
+    /** Phone bottom-nav icons and labels that are not selected. */
+    val NavMuted = Color(0xFF8C8C96)
+
+    /** Hairline on the phone hero card: white at about 13% (#FFFFFF22). */
+    val HeroBorder = Color(0x22FFFFFF)
 }
 
 /** Fades that keep text readable on top of artwork. Both end in [KhColors.Background]. */
 object KhGradients {
     /** Solid at the left, clear at the right. For text over right-weighted artwork. */
+    /** Solid at the left edge, clear at 55% of the width. */
     val LeftFade: Brush = Brush.horizontalGradient(
         0.0f to KhColors.Background,
-        0.35f to KhColors.Background.copy(alpha = 0.85f),
-        0.75f to Color.Transparent,
+        0.55f to Color.Transparent,
     )
 
     /** Clear at the top, solid at the bottom. Blends artwork into the rows below it. */

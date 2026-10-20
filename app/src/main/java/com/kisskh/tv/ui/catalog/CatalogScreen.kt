@@ -29,6 +29,7 @@ import androidx.tv.material3.Text
 import com.kisskh.tv.api.CatalogQuery
 import com.kisskh.tv.api.ContentType
 import com.kisskh.tv.api.Country
+import com.kisskh.tv.api.Show
 import com.kisskh.tv.api.SortOrder
 import com.kisskh.tv.api.Status
 import com.kisskh.tv.ui.AppViewModel
@@ -40,14 +41,17 @@ import com.kisskh.tv.ui.components.ErrorState
 import com.kisskh.tv.ui.components.FilterDropdown
 import com.kisskh.tv.ui.components.FocusRestore
 import com.kisskh.tv.ui.components.FocusTracker
+import com.kisskh.tv.ui.components.FocusedTitleLine
 import com.kisskh.tv.ui.components.KhChip
 import com.kisskh.tv.ui.components.LoadingState
 import com.kisskh.tv.ui.components.RegisterFocusSaver
 import com.kisskh.tv.ui.components.focusIfRestoring
+import com.kisskh.tv.ui.components.rememberFocusedYear
 import com.kisskh.tv.ui.components.rememberFocusRestore
 import com.kisskh.tv.ui.components.revealIndex
 import com.kisskh.tv.ui.components.screenStart
 import com.kisskh.tv.ui.errorMessage
+import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhTheme
 
@@ -60,29 +64,29 @@ private const val TABS_RETRY = "tab:retry"
 /**
  * One screen for TV Series, Movies and a single country: a heading, filter chips and a paged grid.
  *
- * - Series: Country, Status, Sort. Movies: Country, Sort.
- * - A country: tabs (All, TV Series, Movies, empty ones hidden), Sort, and Status on the TV Series tab.
- * - Changing a filter starts again from page 1, scrolls to the top and keeps focus on the chip.
- * - Opening a title and coming back finds the same filters, scroll position and focused card.
+ * Series: country, status, sort. Movies: country, sort. A country: All / TV Series / Movies
+ * (empty ones hidden), sort, and status on the series tab.
+ * Changing a filter starts again from page 1. Coming back restores filters, scroll and focus.
+ * On TV the focused title (and its year, once known) sits above the grid, because the cards are art only.
  */
 @Composable
 fun CatalogScreen(vm: AppViewModel, dest: Dest.Catalog) {
     val pager = remember(dest.pagerKey) { vm.pager(dest) }
     val state by pager.state.collectAsStateWithLifecycle()
     val query = dest.query
+    val tv = KhTheme.formFactor == FormFactor.TV
 
     val gridState = rememberLazyGridState(initialFirstVisibleItemIndex = dest.scrollIndex)
     val tracker = remember { FocusTracker() }
     val restore = rememberFocusRestore(
         remember {
-            dest.focusKey?.takeIf { key -> key.startsWith("filter:") || key.startsWith("tab:") || state.items.any { FocusKeys.show(it.id) == key } }
-                ?: if (dest is Dest.CountryCatalog) FILTER_SORT else FILTER_COUNTRY
+            dest.focusKey?.takeIf { key ->
+                key.startsWith("filter:") || key.startsWith("tab:") || key.startsWith("show:")
+            } ?: if (dest is Dest.CountryCatalog) FILTER_SORT else FILTER_COUNTRY
         },
     )
-
     RegisterFocusSaver(tracker, restore) { vm.saveFocus(tracker.key, gridState.firstVisibleItemIndex) }
 
-    // New filters mean a new list: go back to the top. (Not on the first composition, which restores the old scroll.)
     var shownQuery by remember { mutableStateOf(query) }
     LaunchedEffect(query) {
         if (query != shownQuery) {
@@ -91,14 +95,28 @@ fun CatalogScreen(vm: AppViewModel, dest: Dest.Catalog) {
         }
     }
 
-    // Back from a detail page: make sure the remembered card is on screen so it can take focus.
-    LaunchedEffect(Unit) {
+    var revealed by remember { mutableStateOf(false) }
+    LaunchedEffect(state.items.size) {
+        if (revealed) return@LaunchedEffect
         val index = state.items.indexOfFirst { FocusKeys.show(it.id) == restore.key }
-        if (index >= 0) gridState.revealIndex(index)
+        if (index >= 0) {
+            gridState.revealIndex(index)
+            revealed = true
+        }
     }
+
+    var focused by remember { mutableStateOf<Show?>(null) }
+    val year = rememberFocusedYear(vm, if (tv) focused?.id else null)
 
     Column(Modifier.fillMaxSize().padding(top = KhTheme.spacing.safeVertical)) {
         CatalogHeader(vm, dest, tracker, restore)
+        if (tv) {
+            FocusedTitleLine(
+                title = focused?.title?.trim()?.takeIf { it.isNotEmpty() },
+                year = year,
+                modifier = Modifier.padding(start = screenStart(), end = KhTheme.spacing.safeHorizontal),
+            )
+        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
                 state.isInitialError -> ErrorState(errorMessage(state.error!!), onRetry = { pager.retry() })
@@ -120,8 +138,7 @@ fun CatalogScreen(vm: AppViewModel, dest: Dest.Catalog) {
                         else -> GridFooter.None
                     },
                     onLoadMore = { pager.loadNext() },
-                    // "N eps" would read oddly on movies, whose episodes are parts.
-                    showEpisodeCount = query.type != ContentType.MOVIE,
+                    onFocusedShow = { focused = it },
                 )
             }
         }
@@ -131,6 +148,7 @@ fun CatalogScreen(vm: AppViewModel, dest: Dest.Catalog) {
 @Composable
 private fun CatalogHeader(vm: AppViewModel, dest: Dest.Catalog, tracker: FocusTracker, restore: FocusRestore) {
     val query = dest.query
+    val tv = KhTheme.formFactor == FormFactor.TV
     val heading = when (dest) {
         is Dest.Series -> "TV Series"
         is Dest.Movies -> "Movies"
@@ -140,14 +158,18 @@ private fun CatalogHeader(vm: AppViewModel, dest: Dest.Catalog, tracker: FocusTr
 
     Column(
         Modifier.padding(start = screenStart(), end = KhTheme.spacing.safeHorizontal),
-        verticalArrangement = Arrangement.spacedBy(KhTheme.spacing.xs),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(heading, style = KhTheme.typography.headline, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            heading,
+            style = if (tv) KhTheme.typography.heading else KhTheme.typography.headline,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
         Row(
-            // Padding inside the scroll area: the chip outlines are not cut off at the edges.
-            Modifier.horizontalScroll(rememberScrollState()).padding(KhTheme.spacing.xs),
+            Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(KhTheme.spacing.s),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (dest is Dest.CountryCatalog) {
                 CountryTabs(vm, dest.country, query, tracker, restore, change)
@@ -163,8 +185,7 @@ private fun CatalogHeader(vm: AppViewModel, dest: Dest.Catalog, tracker: FocusTr
                     onFocused = { tracker.key = FILTER_COUNTRY },
                 )
             }
-            val showsStatus = query.type == ContentType.SERIES
-            if (showsStatus) {
+            if (query.type == ContentType.SERIES) {
                 FilterDropdown(
                     label = "Status",
                     options = Status.entries,
@@ -190,7 +211,7 @@ private fun CatalogHeader(vm: AppViewModel, dest: Dest.Catalog, tracker: FocusTr
     }
 }
 
-/** All / TV Series / Movies for one country, from a quick count of each. Empty ones are left out. */
+/** All / TV Series / Movies for one country. Empty ones are left out. */
 @Composable
 private fun CountryTabs(
     vm: AppViewModel,
@@ -207,7 +228,8 @@ private fun CountryTabs(
                 val key = tabKey(type)
                 KhChip(
                     text = type.label,
-                    selected = query.type == type,
+                    outlined = true,
+                    marked = query.type == type,
                     onClick = { change { it.copy(type = type) } },
                     modifier = Modifier
                         .focusIfRestoring(restore, key)
@@ -220,11 +242,12 @@ private fun CountryTabs(
             KhChip(
                 text = "Couldn't check tabs. Retry",
                 onClick = { vm.retryCountryTabs(country) },
+                outlined = true,
                 modifier = Modifier
                     .focusIfRestoring(restore, TABS_RETRY)
                     .onFocusChanged { if (it.isFocused) tracker.key = TABS_RETRY },
             )
         }
-        else -> Unit // still checking, or the country has no titles: the grid says which
+        else -> Unit
     }
 }
