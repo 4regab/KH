@@ -16,7 +16,9 @@ import com.kisskh.tv.api.SortOrder
 import com.kisskh.tv.api.SubtitleFile
 import com.kisskh.tv.api.availableTabs
 import com.kisskh.tv.api.suspendCatching
+import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.ui.home.HomeRails
+import com.kisskh.tv.ui.media.MediaSession
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -58,6 +60,7 @@ private const val HOME_FILTERED_ROW_SIZE = 20
  */
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     val repo = Repository(app)
+    val media = MediaSession(app, viewModelScope)
 
     // ---------------------------------------------------------------- navigation
 
@@ -77,12 +80,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         prunePagers()
     }
 
+    /** KissKH, CineWave, or CineJoy. See [NavState.selectLibrary]. */
+    fun selectLibrary(library: Library) {
+        val playing = _nav.value.current
+        _nav.update { it.selectLibrary(library) }
+        stopIfPlaying(playing)
+        prunePagers()
+    }
+
     /** @return true if we handled back, false if the app should exit. */
     fun onBack(): Boolean {
         val before = _nav.value
         val after = before.pop() ?: return false
         _nav.value = after
-        if (before.current is Dest.Player) stopPlayback()
+        stopIfPlaying(before.current)
         prunePagers()
         return true
     }
@@ -368,10 +379,35 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** From inside the player: stop and go to Home. */
     fun goHome() {
-        val playing = _nav.value.current is Dest.Player
+        val playing = _nav.value.current
         _nav.update { it.selectTab(RootTab.HOME) }
-        if (playing) stopPlayback()
+        stopIfPlaying(playing)
         prunePagers()
+    }
+
+    fun switchStream(dest: Dest.StreamPlayer) {
+        _nav.update { state ->
+            if (state.current is Dest.StreamPlayer) state.updateCurrent { dest } else state.push(dest)
+        }
+    }
+
+    fun switchEmbed(dest: Dest.EmbedPlayer) {
+        _nav.update { state ->
+            if (state.current is Dest.EmbedPlayer) state.updateCurrent { dest } else state.push(dest)
+        }
+    }
+
+    fun setMediaSort(latest: Boolean) {
+        _nav.update { state ->
+            state.updateCurrent { current ->
+                if (current is Dest.MediaBrowse) current.withSort(latest) else current
+            }
+        }
+    }
+
+    private fun stopIfPlaying(dest: Dest) {
+        if (dest is Dest.Player) stopPlayback()
+        if (dest is Dest.StreamPlayer) media.cancelStream()
     }
 
     fun retryPlayer() {

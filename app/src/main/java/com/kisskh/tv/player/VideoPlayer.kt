@@ -60,14 +60,18 @@ fun VideoPlayer(
     onNext: (() -> Unit)?,
     /** When false, Back is left to the screen (an error is already covering the video). */
     hideControlsOnBack: Boolean = true,
+    /** Sent with the video and the subtitle files. KissKH stays on kisskh.co. */
+    requestHeaders: Map<String, String> = PlayerHeaders.Kisskh,
+    /** Movies have no episode list, so the button is hidden. */
+    showEpisodes: Boolean = true,
 ) {
     val context = LocalContext.current
     val reportProgress by rememberUpdatedState(onProgress)
     val reportError by rememberUpdatedState(onPlaybackError)
-    val player = remember(url) {
+    val player = remember(url, requestHeaders) {
         val http = DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Linux; Android 14) Chrome/130 Safari/537.36")
-            .setDefaultRequestProperties(mapOf("Referer" to "https://kisskh.co/", "Origin" to "https://kisskh.co"))
+            .setDefaultRequestProperties(requestHeaders)
             .setAllowCrossProtocolRedirects(true)
         // DefaultDataSource keeps file:// working for the local decrypted subtitle files.
         val dataSource = DefaultDataSource.Factory(context, http)
@@ -78,8 +82,10 @@ fun VideoPlayer(
             .build()
             .apply {
                 val subConfigs = subs.map { s ->
+                    val path = s.uri.substringBefore('?')
+                    val mime = if (path.endsWith(".vtt", ignoreCase = true)) MimeTypes.TEXT_VTT else MimeTypes.APPLICATION_SUBRIP
                     MediaItem.SubtitleConfiguration.Builder(Uri.parse(s.uri))
-                        .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+                        .setMimeType(mime)
                         .setLabel(s.label)
                         .setLanguage(s.language)
                         .apply {
@@ -175,7 +181,10 @@ fun VideoPlayer(
                 view.findViewById<TextView>(R.id.kh_player_label).text = label
                 view.findViewById<View>(R.id.kh_player_back).setOnClickListener { onBack() }
                 view.findViewById<View>(R.id.kh_player_home).setOnClickListener { onHome() }
-                view.findViewById<View>(R.id.kh_player_episodes).setOnClickListener { onEpisodes() }
+                view.findViewById<View>(R.id.kh_player_episodes).apply {
+                    visibility = if (showEpisodes) View.VISIBLE else View.GONE
+                    setOnClickListener { if (showEpisodes) onEpisodes() }
+                }
                 view.findViewById<View>(R.id.kh_player_next).apply {
                     visibility = if (onNext != null) View.VISIBLE else View.GONE
                     setOnClickListener { onNext?.invoke() }
@@ -183,6 +192,11 @@ fun VideoPlayer(
             },
         )
     }
+}
+
+object PlayerHeaders {
+    val Kisskh = mapOf("Referer" to "https://kisskh.co/", "Origin" to "https://kisskh.co")
+    val CineJoy = mapOf("Referer" to "https://cinejoy.pk/", "Origin" to "https://cinejoy.pk")
 }
 
 private fun playbackMessage(error: PlaybackException): String = when (error.errorCode) {

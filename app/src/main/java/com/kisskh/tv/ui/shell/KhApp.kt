@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,9 +35,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.ui.AppViewModel
 import com.kisskh.tv.ui.Dest
 import com.kisskh.tv.ui.NavState
+import com.kisskh.tv.ui.RootTab
 import com.kisskh.tv.ui.catalog.CatalogScreen
 import com.kisskh.tv.ui.catalog.CountriesScreen
 import com.kisskh.tv.ui.components.FocusSaver
@@ -45,7 +48,16 @@ import com.kisskh.tv.ui.components.LocalFocusSaver
 import com.kisskh.tv.ui.components.rememberIsTelevision
 import com.kisskh.tv.ui.detail.DetailScreen
 import com.kisskh.tv.ui.home.HomeScreen
+import com.kisskh.tv.ui.labelFor
+import com.kisskh.tv.ui.tabs
+import com.kisskh.tv.ui.media.MediaBrowseScreen
+import com.kisskh.tv.ui.media.MediaDetailScreen
+import com.kisskh.tv.ui.media.MediaHomeScreen
+import com.kisskh.tv.ui.media.MediaSearchScreen
+import com.kisskh.tv.ui.media.TokenScreen
 import com.kisskh.tv.ui.search.SearchScreen
+import com.kisskh.tv.player.EmbedPlayer
+import com.kisskh.tv.player.StreamPlayerScreen
 import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhMotion
@@ -69,12 +81,13 @@ fun KhApp(
     val nav by vm.nav.collectAsStateWithLifecycle()
     val current = nav.current
     val tv = KhTheme.formFactor == FormFactor.TV
-    val showRail = tv && current !is Dest.Player
+    val playing = current is Dest.Player || current is Dest.EmbedPlayer || current is Dest.StreamPlayer
+    val showRail = tv && !playing
     val focusManager = LocalFocusManager.current
     val saver = remember { FocusSaver() }
     var railFocused by remember { mutableStateOf(false) }
     LaunchedEffect(showRail) { if (!showRail) railFocused = false }
-    LockPlaybackLandscape(current is Dest.Player)
+    LockPlaybackLandscape(playing)
 
     val scope = rememberCoroutineScope()
     val enterContent: () -> Boolean = {
@@ -109,6 +122,10 @@ fun KhApp(
                         saver.save?.invoke()
                         vm.selectTab(tab)
                     },
+                    onSelectLibrary = { library ->
+                        saver.save?.invoke()
+                        vm.selectLibrary(library)
+                    },
                     player = player,
                 )
             } else {
@@ -118,6 +135,10 @@ fun KhApp(
                     onSelectTab = { tab ->
                         saver.save?.invoke()
                         vm.selectTab(tab)
+                    },
+                    onSelectLibrary = { library ->
+                        saver.save?.invoke()
+                        vm.selectLibrary(library)
                     },
                     player = player,
                 )
@@ -149,7 +170,8 @@ private fun TvScaffold(
     railFocused: Boolean,
     onRailFocus: (Boolean) -> Unit,
     onEnterContent: () -> Boolean,
-    onSelectTab: (com.kisskh.tv.ui.RootTab) -> Unit,
+    onSelectTab: (RootTab) -> Unit,
+    onSelectLibrary: (Library) -> Unit,
     player: @Composable (Dest.Player) -> Unit,
 ) {
     val scrim by animateFloatAsState(
@@ -182,7 +204,11 @@ private fun TvScaffold(
         if (showRail) {
             NavRail(
                 active = nav.activeTab,
+                tabs = nav.library.tabs(),
+                library = nav.library,
+                labelOf = { it.labelFor(nav.library) },
                 onSelect = onSelectTab,
+                onSelectLibrary = onSelectLibrary,
                 onFocusChanged = onRailFocus,
                 onEnterContent = onEnterContent,
                 modifier = Modifier.align(Alignment.CenterStart),
@@ -195,16 +221,19 @@ private fun TvScaffold(
 private fun PhoneScaffold(
     vm: AppViewModel,
     nav: NavState,
-    onSelectTab: (com.kisskh.tv.ui.RootTab) -> Unit,
+    onSelectTab: (RootTab) -> Unit,
+    onSelectLibrary: (Library) -> Unit,
     player: @Composable (Dest.Player) -> Unit,
 ) {
     val current = nav.current
-    val showNav = current !is Dest.Player && current !is Dest.Detail
-    val padStatus = current !is Dest.Home && current !is Dest.Detail && current !is Dest.Player
+    val showNav = current !is Dest.Player && current !is Dest.Detail &&
+        current !is Dest.EmbedPlayer && current !is Dest.StreamPlayer && current !is Dest.MediaDetail
+    val padStatus = current !is Dest.Home && current !is Dest.Detail && current !is Dest.Player &&
+        current !is Dest.EmbedPlayer && current !is Dest.StreamPlayer
     val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottom = when {
-        current is Dest.Player -> 0.dp
-        showNav -> PhoneNavHeight + navInset
+        !showNav && (current is Dest.Player || current is Dest.EmbedPlayer || current is Dest.StreamPlayer) -> 0.dp
+        showNav -> PhoneNavHeight + SourceBarHeight + navInset
         else -> navInset
     }
     Box(Modifier.fillMaxSize().background(KhColors.Background)) {
@@ -218,11 +247,15 @@ private fun PhoneScaffold(
                 .padding(bottom = bottom),
         )
         if (showNav) {
-            KhBottomNav(
-                active = nav.activeTab,
-                onSelect = onSelectTab,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
+            Column(Modifier.align(Alignment.BottomCenter)) {
+                SourceBar(library = nav.library, onSelect = onSelectLibrary)
+                KhBottomNav(
+                    active = nav.activeTab,
+                    tabs = nav.library.tabs(),
+                    labelOf = { it.labelFor(nav.library) },
+                    onSelect = onSelectTab,
+                )
+            }
         }
     }
 }
@@ -237,23 +270,36 @@ private fun ScreenBody(
     key(screenKey(nav)) {
         Box(modifier) {
             when (val d = nav.current) {
-                is Dest.Home -> HomeScreen(vm, d)
-                is Dest.Search -> SearchScreen(vm, d)
+                is Dest.Home -> if (nav.library == Library.KISSKH) HomeScreen(vm, d) else MediaHomeScreen(vm, nav.library)
+                is Dest.Search -> if (nav.library == Library.KISSKH) SearchScreen(vm, d) else MediaSearchScreen(vm)
                 is Dest.Catalog -> CatalogScreen(vm, d)
                 is Dest.Countries -> CountriesScreen(vm, d)
                 is Dest.Detail -> DetailScreen(vm, d)
                 is Dest.Player -> player(d)
+                is Dest.MediaBrowse -> MediaBrowseScreen(vm, d)
+                is Dest.MediaDetail -> MediaDetailScreen(vm, nav.library, d)
+                is Dest.EmbedPlayer -> EmbedPlayer(vm, d)
+                is Dest.StreamPlayer -> StreamPlayerScreen(vm, d)
+                is Dest.Token -> TokenScreen(vm)
             }
         }
     }
 }
 
 /** Same key = same screen, even when its filters or focus change. A different key = a new screen. */
-private fun screenKey(nav: NavState): String = when (val d = nav.current) {
-    is Dest.Home -> "home"
-    is Dest.Search -> "search"
-    is Dest.Catalog -> d.pagerKey
-    is Dest.Countries -> "countries"
-    is Dest.Detail -> "detail:${d.dramaId}:${nav.stack.size}"
-    is Dest.Player -> "player"
+private fun screenKey(nav: NavState): String {
+    val body = when (val d = nav.current) {
+        is Dest.Home -> "home"
+        is Dest.Search -> "search"
+        is Dest.Catalog -> d.pagerKey
+        is Dest.Countries -> "countries"
+        is Dest.Detail -> "detail:${d.dramaId}:${nav.stack.size}"
+        is Dest.Player -> "player"
+        is Dest.MediaBrowse -> "browse:${d.browseKey}"
+        is Dest.MediaDetail -> "mdetail:${d.kind}:${d.tmdbId}:${nav.stack.size}"
+        is Dest.EmbedPlayer -> "embed:${d.tmdbId}:${d.season}:${d.episode}"
+        is Dest.StreamPlayer -> "stream:${d.progressKey}"
+        is Dest.Token -> "token"
+    }
+    return "${nav.library.name}:$body"
 }

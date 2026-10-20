@@ -4,14 +4,28 @@ import com.kisskh.tv.api.CatalogQuery
 import com.kisskh.tv.api.ContentType
 import com.kisskh.tv.api.Country
 import com.kisskh.tv.api.Status
+import com.kisskh.tv.api.media.Library
+import com.kisskh.tv.api.media.MediaKind
 
-/** The items on the left rail, top to bottom. */
+/** The items on the left rail, top to bottom. KissKH uses the first five. */
 enum class RootTab(val label: String) {
     HOME("Home"),
     SEARCH("Search"),
     SERIES("TV Series"),
     MOVIES("Movies"),
     COUNTRIES("Countries"),
+    ANIME("Anime"),
+}
+
+/** Rail and bottom-bar label. CineWave and CineJoy call series "TV Shows". */
+fun RootTab.labelFor(library: Library): String =
+    if (this == RootTab.SERIES && library != Library.KISSKH) "TV Shows" else label
+
+/** Tabs for one source, in the order they appear. */
+fun Library.tabs(): List<RootTab> = when (this) {
+    Library.KISSKH -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.SERIES, RootTab.MOVIES, RootTab.COUNTRIES)
+    Library.CINEWAVE -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES, RootTab.ANIME)
+    Library.CINEJOY -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES)
 }
 
 /** Helpers for the opaque `focusKey` strings that screens store in a [Dest]. */
@@ -160,6 +174,92 @@ sealed interface Dest {
         val episodeNumber: Float = 0f,
         val thumbnail: String? = null,
     ) : Dest
+
+    /** A TMDB grid: movies, TV, or CineWave anime. */
+    data class MediaBrowse(
+        val kind: MediaKind,
+        val latest: Boolean = false,
+        override val focusKey: String? = null,
+        override val scrollIndex: Int = 0,
+    ) : Restorable {
+        override val tab: RootTab
+            get() = when (kind) {
+                MediaKind.MOVIE -> RootTab.MOVIES
+                MediaKind.TV -> RootTab.SERIES
+                MediaKind.ANIME -> RootTab.ANIME
+            }
+        val browseKey: String
+            get() = if (kind == MediaKind.ANIME) "anime" else "${kind.name}:${if (latest) "latest" else "popular"}"
+
+        override fun withFocus(focusKey: String?, scrollIndex: Int?) =
+            copy(focusKey = focusKey, scrollIndex = scrollIndex ?: this.scrollIndex)
+
+        fun withSort(latest: Boolean): MediaBrowse =
+            if (kind == MediaKind.ANIME || latest == this.latest) this
+            else copy(latest = latest, focusKey = null, scrollIndex = 0)
+    }
+
+    data class MediaDetail(
+        val kind: MediaKind,
+        val tmdbId: Int,
+        override val focusKey: String? = null,
+        override val scrollIndex: Int = 0,
+    ) : Restorable {
+        override fun withFocus(focusKey: String?, scrollIndex: Int?) =
+            copy(focusKey = focusKey, scrollIndex = scrollIndex ?: this.scrollIndex)
+    }
+
+    /** CineWave iframe. Servers are chosen on the screen, in the site's order. */
+    data class EmbedPlayer(
+        val title: String,
+        val poster: String?,
+        val kind: MediaKind,
+        val tmdbId: Int,
+        val season: Int = 1,
+        val episode: Int = 1,
+        val episodeName: String = "",
+        val nextEpisode: Int? = null,
+    ) : Dest {
+        val progressKey: String
+            get() = if (kind.isMovie) com.kisskh.tv.api.media.MediaKeys.movie(Library.CINEWAVE.key, tmdbId)
+            else com.kisskh.tv.api.media.MediaKeys.episode(Library.CINEWAVE.key, tmdbId, season, episode)
+
+        val label: String
+            get() = if (kind.isMovie) "Movie" else episodeLabel(season, episode, episodeName)
+    }
+
+    /** CineJoy, once Febbox has returned an m3u8. */
+    data class StreamPlayer(
+        val title: String,
+        val poster: String?,
+        val kind: MediaKind,
+        val tmdbId: Int,
+        val season: Int = 1,
+        val episode: Int = 1,
+        val episodeName: String = "",
+        val nextEpisode: Int? = null,
+    ) : Dest {
+        val progressKey: String
+            get() = if (kind.isMovie) com.kisskh.tv.api.media.MediaKeys.movie(Library.CINEJOY.key, tmdbId)
+            else com.kisskh.tv.api.media.MediaKeys.episode(Library.CINEJOY.key, tmdbId, season, episode)
+
+        val label: String
+            get() = if (kind.isMovie) "Movie" else episodeLabel(season, episode, episodeName)
+    }
+
+    /** Where the CineJoy Febbox token is pasted. */
+    data class Token(
+        override val focusKey: String? = null,
+        override val scrollIndex: Int = 0,
+    ) : Restorable {
+        override fun withFocus(focusKey: String?, scrollIndex: Int?) =
+            copy(focusKey = focusKey, scrollIndex = scrollIndex ?: this.scrollIndex)
+    }
+}
+
+private fun episodeLabel(season: Int, episode: Int, name: String): String {
+    val head = "S$season E$episode"
+    return if (name.isBlank()) head else "$head · $name"
 }
 
 /**
@@ -173,6 +273,7 @@ sealed interface Dest {
 data class NavState(
     val stack: List<Dest> = listOf(Dest.Home()),
     val parked: Map<RootTab, Dest> = emptyMap(),
+    val library: Library = Library.KISSKH,
 ) {
     val current: Dest get() = stack.last()
 
@@ -191,23 +292,42 @@ data class NavState(
 
     /** Rail selection. Picking the active item again returns to its top screen. */
     fun selectTab(tab: RootTab): NavState {
+        if (tab !in library.tabs()) return this
         if (tab == activeTab) return copy(stack = stack.take(if (tab == RootTab.HOME) 1 else 2))
         val home = stack.first()
         val leaving = stack.getOrNull(1)?.takeIf { it.tab != null } // the top-level screen being left
         val nextParked = if (leaving != null) parked + (leaving.tab!! to leaving) else parked
-        return if (tab == RootTab.HOME) NavState(listOf(home), nextParked)
-        else NavState(listOf(home, nextParked[tab] ?: defaultFor(tab)), nextParked - tab)
+        return if (tab == RootTab.HOME) copy(stack = listOf(home), parked = nextParked)
+        else copy(stack = listOf(home, nextParked[tab] ?: defaultFor(tab)), parked = nextParked - tab)
     }
+
+    /**
+     * Switch catalog. A different source opens that source's Home. The same source goes Home and
+     * keeps the parked tabs of this source.
+     */
+    fun selectLibrary(next: Library): NavState =
+        if (next == library) selectTab(RootTab.HOME) else NavState(library = next)
 
     /** Every catalog destination still reachable (on the stack or parked): their pagers must stay. */
     fun catalogKeys(): Set<String> =
         (stack + parked.values).filterIsInstance<Dest.Catalog>().map { it.pagerKey }.toSet()
 
-    private fun defaultFor(tab: RootTab): Dest = when (tab) {
-        RootTab.HOME -> Dest.Home()
-        RootTab.SEARCH -> Dest.Search()
-        RootTab.SERIES -> Dest.Series()
-        RootTab.MOVIES -> Dest.Movies()
-        RootTab.COUNTRIES -> Dest.Countries()
+    private fun defaultFor(tab: RootTab): Dest = when (library) {
+        Library.KISSKH -> when (tab) {
+            RootTab.HOME -> Dest.Home()
+            RootTab.SEARCH -> Dest.Search()
+            RootTab.SERIES -> Dest.Series()
+            RootTab.MOVIES -> Dest.Movies()
+            RootTab.COUNTRIES -> Dest.Countries()
+            RootTab.ANIME -> Dest.Home()
+        }
+        Library.CINEWAVE, Library.CINEJOY -> when (tab) {
+            RootTab.HOME -> Dest.Home()
+            RootTab.SEARCH -> Dest.Search()
+            RootTab.MOVIES -> Dest.MediaBrowse(MediaKind.MOVIE)
+            RootTab.SERIES -> Dest.MediaBrowse(MediaKind.TV)
+            RootTab.ANIME -> Dest.MediaBrowse(MediaKind.ANIME)
+            RootTab.COUNTRIES -> Dest.Home()
+        }
     }
 }

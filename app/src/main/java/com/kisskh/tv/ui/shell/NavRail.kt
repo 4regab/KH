@@ -45,9 +45,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.kisskh.tv.R
+import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.ui.RootTab
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhFocusable
@@ -68,6 +70,7 @@ fun iconFor(tab: RootTab): Int = when (tab) {
     RootTab.SERIES -> R.drawable.ic_nav_series
     RootTab.MOVIES -> R.drawable.ic_nav_movies
     RootTab.COUNTRIES -> R.drawable.ic_nav_countries
+    RootTab.ANIME -> R.drawable.ic_nav_anime
 }
 
 /**
@@ -81,7 +84,11 @@ fun iconFor(tab: RootTab): Int = when (tab) {
 @Composable
 fun NavRail(
     active: RootTab,
+    tabs: List<RootTab>,
+    library: Library,
+    labelOf: (RootTab) -> String,
     onSelect: (RootTab) -> Unit,
+    onSelectLibrary: (Library) -> Unit,
     onFocusChanged: (Boolean) -> Unit,
     onEnterContent: () -> Boolean,
     modifier: Modifier = Modifier,
@@ -95,7 +102,7 @@ fun NavRail(
         ),
         label = "railExpand",
     )
-    val requesters = remember { RootTab.entries.associateWith { FocusRequester() } }
+    val requesters = remember(tabs) { tabs.associateWith { FocusRequester() } }
     val currentActive by rememberUpdatedState(active)
     val labelAlpha = ((expand - 0.35f) / 0.65f).coerceIn(0f, 1f)
 
@@ -109,7 +116,11 @@ fun NavRail(
                 hasFocus = it.hasFocus
                 onFocusChanged(it.hasFocus)
             }
-            .focusProperties { enter = { requesters.getValue(currentActive) } }
+            .focusProperties {
+                enter = {
+                    requesters[currentActive] ?: requesters.values.first()
+                }
+            }
             .focusGroup(),
     ) {
         Column(
@@ -126,13 +137,23 @@ fun NavRail(
             }
             Spacer(Modifier.weight(1f))
             Column {
-                RootTab.entries.forEach { tab ->
+                tabs.forEach { tab ->
                     RailItem(
                         tab = tab,
+                        label = labelOf(tab),
                         selected = tab == active,
                         labelAlpha = labelAlpha,
                         onClick = { onSelect(tab) },
                         modifier = Modifier.focusRequester(requesters.getValue(tab)),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Library.entries.forEach { source ->
+                    LibraryItem(
+                        library = source,
+                        selected = source == library,
+                        labelAlpha = labelAlpha,
+                        onClick = { onSelectLibrary(source) },
                     )
                 }
             }
@@ -144,6 +165,7 @@ fun NavRail(
 @Composable
 private fun RailItem(
     tab: RootTab,
+    label: String,
     selected: Boolean,
     labelAlpha: Float,
     onClick: () -> Unit,
@@ -155,7 +177,7 @@ private fun RailItem(
             .width(if (labelAlpha > 0.2f) RailExpandedWidth else RailCollapsedWidth)
             .height(ItemHeight)
             .semantics {
-                contentDescription = tab.label
+                contentDescription = label
                 this.selected = selected
             },
         shape = RoundedCornerShape(8.dp),
@@ -182,7 +204,59 @@ private fun RailItem(
                 }
             }
             Text(
-                tab.label,
+                label,
+                style = KhTheme.typography.railLabel,
+                color = tint,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip,
+                modifier = Modifier.graphicsLayer { alpha = labelAlpha },
+            )
+        }
+    }
+}
+
+@Composable
+private fun LibraryItem(
+    library: Library,
+    selected: Boolean,
+    labelAlpha: Float,
+    onClick: () -> Unit,
+) {
+    val mark = when (library) {
+        Library.KISSKH -> "KH"
+        Library.CINEWAVE -> "CW"
+        Library.CINEJOY -> "CJ"
+    }
+    KhFocusable(
+        onClick = onClick,
+        modifier = Modifier
+            .width(if (labelAlpha > 0.2f) RailExpandedWidth else RailCollapsedWidth)
+            .height(40.dp)
+            .semantics {
+                contentDescription = "Source ${library.label}"
+                this.selected = selected
+            },
+        shape = RoundedCornerShape(8.dp),
+        scaleAndLift = false,
+    ) { focused ->
+        val tint = if (selected || focused) KhColors.TextPrimary else KhColors.TextSecondary
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(RailCollapsedWidth).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                Text(mark, color = tint, fontSize = 12.sp, maxLines = 1)
+                if (selected) {
+                    Box(
+                        Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 6.dp)
+                            .width(3.dp)
+                            .height(18.dp)
+                            .background(KhColors.Brand, RoundedCornerShape(2.dp)),
+                    )
+                }
+            }
+            Text(
+                library.label,
                 style = KhTheme.typography.railLabel,
                 color = tint,
                 maxLines = 1,
