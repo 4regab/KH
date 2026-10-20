@@ -10,15 +10,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -33,15 +36,28 @@ import com.kisskh.tv.ui.Dest
 import com.kisskh.tv.ui.UiState
 import com.kisskh.tv.ui.components.Artwork
 import com.kisskh.tv.ui.components.EmptyState
+import com.kisskh.tv.ui.components.FocusRestore
+import com.kisskh.tv.ui.components.FocusTracker
 import com.kisskh.tv.ui.components.ErrorState
 import com.kisskh.tv.ui.components.KhButton
 import com.kisskh.tv.ui.components.KhChip
 import com.kisskh.tv.ui.components.LoadingState
+import com.kisskh.tv.ui.components.RegisterFocusSaver
+import com.kisskh.tv.ui.components.focusIfRestoring
 import com.kisskh.tv.ui.components.heroHeight
+import com.kisskh.tv.ui.components.rememberAutoFocusAllowed
+import com.kisskh.tv.ui.components.rememberFocusRestore
+import com.kisskh.tv.ui.components.revealIndex
 import com.kisskh.tv.ui.components.screenStart
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhFocusable
 import com.kisskh.tv.ui.theme.KhTheme
+
+/** Focus key of the first thing to focus: Play on a movie, the episode to watch on a series. */
+private const val START_KEY = "start"
+
+/** Index of the season block in the detail list. Revealed first so the episode rows exist to take focus. */
+private const val SEASON_ITEM = 2
 
 @Composable
 fun MediaDetailScreen(vm: AppViewModel, library: Library, dest: Dest.MediaDetail) {
@@ -50,17 +66,26 @@ fun MediaDetailScreen(vm: AppViewModel, library: Library, dest: Dest.MediaDetail
         UiState.Loading -> LoadingState(message = "Loading")
         is UiState.Error -> ErrorState(s.message, onRetry = { vm.media.retryDetail(dest.kind, dest.tmdbId) }, autoFocus = true)
         is UiState.Empty -> EmptyState(s.message ?: "This title isn't available.")
-        is UiState.Success -> DetailBody(vm, library, dest.kind, s.data)
+        is UiState.Success -> DetailBody(vm, library, dest, s.data)
     }
 }
 
 @Composable
-private fun DetailBody(vm: AppViewModel, library: Library, kind: MediaKind, details: TmdbTitleDetails) {
+private fun DetailBody(vm: AppViewModel, library: Library, dest: Dest.MediaDetail, details: TmdbTitleDetails) {
+    val kind = dest.kind
     val title = details.title
     val saved = remember(library, title.id, vm.media.progress.entries().size) {
         vm.media.progress.entries().firstOrNull { it.source == library.key && it.id == title.id && it.resumable }
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    // Focus starts on Play (movie) or on the episode to watch next (series), so a remote can reach it.
+    // Coming back from the player restores the row that was playing.
+    val tracker = remember { FocusTracker() }
+    val restore = rememberFocusRestore(remember { dest.focusKey ?: START_KEY })
+    RegisterFocusSaver(tracker, restore) { vm.saveFocus(tracker.key, 0) }
+    val listState = rememberLazyListState()
+    val autoFocus = rememberAutoFocusAllowed()
+    LaunchedEffect(kind) { if (!kind.isMovie && autoFocus()) listState.revealIndex(SEASON_ITEM) }
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 32.dp)) {
         item {
             Artwork(
                 title.artwork,
@@ -94,16 +119,22 @@ private fun DetailBody(vm: AppViewModel, library: Library, kind: MediaKind, deta
                 if (kind.isMovie) {
                     KhButton(
                         text = if (saved != null) "Resume" else "Play",
-                        onClick = { vm.playMedia(library, kind, details, season = 1, episode = null, next = null) },
+                        onClick = {
+                            vm.saveFocus(START_KEY, 0)
+                            vm.playMedia(library, kind, details, season = 1, episode = null)
+                        },
                         primary = true,
-                        modifier = Modifier.padding(top = 16.dp),
+                        modifier = Modifier
+                            .padding(top = 16.dp)
+                            .focusIfRestoring(restore, START_KEY)
+                            .onFocusChanged { if (it.isFocused) tracker.key = START_KEY },
                     )
                 }
             }
         }
         if (!kind.isMovie) {
             item {
-                SeasonBlock(vm, library, kind, details, saved)
+                SeasonBlock(vm, library, kind, details, saved, restore, tracker)
             }
         }
         if (details.recommendations.isNotEmpty()) {
@@ -139,8 +170,11 @@ private fun SeasonBlock(
     kind: MediaKind,
     details: TmdbTitleDetails,
     saved: MediaEntry?,
+    restore: FocusRestore,
+    tracker: FocusTracker,
 ) {
-    val seasons = details.seasons
+    // Specials (season 0) are left out: Febbox and the embed links only take season 1 and up.
+    val seasons = details.seasons.filter { it.number >= 1 }
     if (seasons.isEmpty()) {
         EmptyState("No episodes yet.", modifier = Modifier.fillMaxWidth().height(120.dp))
         return
@@ -174,15 +208,21 @@ private fun SeasonBlock(
             is UiState.Empty -> EmptyState(s.message ?: "No episodes in this season.", modifier = Modifier.fillMaxWidth().height(120.dp))
             is UiState.Success -> {
                 val episodes = s.data
-                episodes.forEachIndexed { index, episode ->
-                    val next = episodes.getOrNull(index + 1)?.number
-                    val resumeHere = saved != null && saved.season == seasonNumber && saved.episode == episode.number
+                val resumeAt = if (saved != null && saved.season == seasonNumber) episodes.firstOrNull { it.number == saved.episode } else null
+                val start = resumeAt ?: episodes.first()
+                episodes.forEach { episode ->
+                    val rowKey = "ep:${episode.number}"
                     EpisodeRow(
                         episode = episode,
-                        resume = resumeHere,
+                        resume = episode === resumeAt,
                         onClick = {
-                            vm.playMedia(library, kind, details, seasonNumber, episode, next)
+                            vm.saveFocus(rowKey, 0)
+                            vm.playMedia(library, kind, details, seasonNumber, episode)
                         },
+                        modifier = Modifier
+                            .let { if (episode === start) it.focusIfRestoring(restore, START_KEY) else it }
+                            .focusIfRestoring(restore, rowKey)
+                            .onFocusChanged { if (it.isFocused) tracker.key = rowKey },
                     )
                 }
             }
@@ -191,10 +231,10 @@ private fun SeasonBlock(
 }
 
 @Composable
-private fun EpisodeRow(episode: TmdbEpisode, resume: Boolean, onClick: () -> Unit) {
+private fun EpisodeRow(episode: TmdbEpisode, resume: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     KhFocusable(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
         shape = KhTheme.shapes.action,
         scaleAndLift = false,
     ) {

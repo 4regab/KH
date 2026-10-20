@@ -68,6 +68,10 @@ private fun TvHome(vm: AppViewModel, library: Library, home: MediaHome) {
     Column(Modifier.fillMaxSize()) {
         Billboard(focused ?: first, library, Modifier.fillMaxWidth().weight(0.42f))
         LazyColumn(Modifier.weight(0.58f).fillMaxWidth()) {
+            // First, so a remote reaches it in one press instead of scrolling past every row.
+            if (library == Library.CINEJOY) {
+                item { TokenButton(onClick = { vm.push(Dest.Token()) }) }
+            }
             items(home.rows, key = { it.title }) { row ->
                 Text(
                     row.title,
@@ -76,9 +80,6 @@ private fun TvHome(vm: AppViewModel, library: Library, home: MediaHome) {
                     modifier = Modifier.padding(start = screenStart(), top = 8.dp, bottom = 4.dp),
                 )
                 MediaRail(vm, library, row, onFocused = { focused = it })
-            }
-            if (library == Library.CINEJOY) {
-                item { TokenButton(onClick = { vm.push(Dest.Token()) }) }
             }
             if (home.failed.isNotEmpty()) {
                 item {

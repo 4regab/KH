@@ -28,7 +28,10 @@ import com.kisskh.tv.ui.Dest
 import com.kisskh.tv.ui.UiState
 import com.kisskh.tv.ui.components.KhButton
 import com.kisskh.tv.ui.components.LoadingState
+import com.kisskh.tv.ui.components.focusIfRestoring
+import com.kisskh.tv.ui.components.rememberFocusRestore
 import com.kisskh.tv.ui.media.KhField
+import com.kisskh.tv.ui.media.rememberNextEpisode
 import com.kisskh.tv.ui.media.StreamRequest
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhTheme
@@ -38,8 +41,11 @@ import com.kisskh.tv.ui.theme.KhTheme
 fun StreamPlayerScreen(vm: AppViewModel, dest: Dest.StreamPlayer) {
     val request = remember(dest.progressKey, dest.title, dest.poster) { dest.toRequest() }
     LaunchedEffect(request) { vm.media.loadStream(request) }
-    val state by vm.media.stream.collectAsStateWithLifecycle()
+    val loaded by vm.media.stream.collectAsStateWithLifecycle()
+    // The stream state is shared. Until this episode's own request lands, an older episode's result is not shown.
+    val state = if (loaded is UiState.Success && (loaded as UiState.Success).data.key != request.key) UiState.Loading else loaded
     val nav by vm.nav.collectAsStateWithLifecycle()
+    val next = rememberNextEpisode(vm, dest.kind, dest.tmdbId, dest.season, dest.episode)
     val showEpisodes = !dest.kind.isMovie && nav.stack.dropLast(1).lastOrNull() is Dest.MediaDetail
     var failed by remember(request) { mutableStateOf<String?>(null) }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -80,10 +86,8 @@ fun StreamPlayerScreen(vm: AppViewModel, dest: Dest.StreamPlayer) {
                     onBack = { vm.onBack() },
                     onHome = { vm.goHome() },
                     onEpisodes = { vm.onBack() },
-                    onNext = dest.nextEpisode?.let { next ->
-                        {
-                            vm.switchStream(dest.copy(episode = next, episodeName = "", nextEpisode = null))
-                        }
+                    onNext = next?.let { episode ->
+                        { vm.switchStream(dest.copy(episode = episode, episodeName = "")) }
                     },
                     hideControlsOnBack = failed == null,
                     requestHeaders = PlayerHeaders.CineJoy,
@@ -125,13 +129,14 @@ private fun TokenPrompt(
     onHome: () -> Unit,
 ) {
     var draft by remember { mutableStateOf("") }
+    val restore = rememberFocusRestore("field")
     Column(
         Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(message, style = KhTheme.typography.title, color = KhColors.TextPrimary, textAlign = TextAlign.Center)
-        KhField(draft, { draft = it }, "Febbox token", Modifier.fillMaxWidth())
+        KhField(draft, { draft = it }, "Febbox token", Modifier.fillMaxWidth().focusIfRestoring(restore, "field"))
         KhButton("Save and play", primary = true, onClick = { onSave(draft) }, enabled = draft.isNotBlank())
         KhButton("Back", onClick = onBack)
         KhButton("Home", onClick = onHome)

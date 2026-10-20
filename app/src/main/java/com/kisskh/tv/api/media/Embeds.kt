@@ -153,6 +153,44 @@ object EmbedFailover {
 }
 
 /**
+ * Pages that load but have nothing to play. HTTP and network errors are caught by the WebView; these
+ * are the ones it reports as a success: an error page drawn by the site, or a redirect to its home page.
+ */
+object EmbedPage {
+    private val dead = Regex("\\b404\\b|not found|unreachable|error code|access denied|forbidden|bad gateway|unavailable", RegexOption.IGNORE_CASE)
+
+    /** An error page is short. A real site with a player on it is not. */
+    private const val SHORT_TEXT = 600
+
+    /** [text] is what the page shows, [players] how many video, iframe and canvas elements it has. */
+    fun unavailable(text: String, players: Int): Boolean =
+        players == 0 && text.length < SHORT_TEXT && dead.containsMatchIn(text)
+
+    /** True when [asked] pointed at a title but [landed] is a bare http(s) site root. */
+    fun sentHome(asked: String, landed: String): Boolean {
+        if (!web(landed)) return false
+        return path(asked).isNotEmpty() && path(landed).isEmpty()
+    }
+
+    /** True when the page replaced itself with about:blank (some players do this when they detect a debugger). */
+    fun blanked(landed: String): Boolean = landed.startsWith("about:blank")
+
+    private fun web(url: String): Boolean = url.startsWith("http://") || url.startsWith("https://")
+
+    private fun path(url: String): String =
+        runCatching { URI(url).path.orEmpty().trim('/') }.getOrDefault("")
+
+    /** A short reason for the bar, from the WebView's own error text (for example "net::ERR_NAME_NOT_RESOLVED"). */
+    fun reason(error: String): String = when {
+        "NAME_NOT_RESOLVED" in error -> "server not found"
+        "CONNECTION" in error || "ADDRESS_UNREACHABLE" in error -> "can't connect"
+        "TIMED_OUT" in error -> "timed out"
+        "SSL" in error || "CERT" in error -> "security error"
+        else -> "failed to load"
+    }
+}
+
+/**
  * What to do with a navigation inside the embed player.
  * Popups and non-http schemes are blocked. A known ad host on the main frame fails over.
  */

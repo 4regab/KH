@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kisskh.tv.api.media.MediaKind
@@ -39,6 +40,8 @@ fun MediaSearchScreen(vm: AppViewModel) {
                 onValueChange = { vm.media.setQuery(it) },
                 hint = "Movies and TV shows",
                 modifier = Modifier.fillMaxWidth(),
+                imeAction = ImeAction.Search,
+                onAction = { vm.media.setQuery(query, immediate = true) },
             )
             KhButton("Search", onClick = { vm.media.setQuery(query, immediate = true) }, primary = true)
         }

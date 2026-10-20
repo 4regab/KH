@@ -218,7 +218,6 @@ sealed interface Dest {
         val season: Int = 1,
         val episode: Int = 1,
         val episodeName: String = "",
-        val nextEpisode: Int? = null,
     ) : Dest {
         val progressKey: String
             get() = if (kind.isMovie) com.kisskh.tv.api.media.MediaKeys.movie(Library.CINEWAVE.key, tmdbId)
@@ -237,7 +236,6 @@ sealed interface Dest {
         val season: Int = 1,
         val episode: Int = 1,
         val episodeName: String = "",
-        val nextEpisode: Int? = null,
     ) : Dest {
         val progressKey: String
             get() = if (kind.isMovie) com.kisskh.tv.api.media.MediaKeys.movie(Library.CINEJOY.key, tmdbId)

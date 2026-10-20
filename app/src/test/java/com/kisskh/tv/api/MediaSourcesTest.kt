@@ -3,6 +3,7 @@ package com.kisskh.tv.api
 import com.kisskh.tv.api.media.CineJoyToken
 import com.kisskh.tv.api.media.EmbedFailover
 import com.kisskh.tv.api.media.EmbedNav
+import com.kisskh.tv.api.media.EmbedPage
 import com.kisskh.tv.api.media.EmbedPolicy
 import com.kisskh.tv.api.media.EmbedServers
 import com.kisskh.tv.api.media.FebParse
@@ -63,6 +64,21 @@ class MediaSourcesTest {
         assertEquals(1, EmbedFailover.next(0, 3, setOf(0)))
         assertNull(EmbedFailover.next(0, 3, setOf(0, 1, 2)))
         assertEquals(0, EmbedFailover.next(2, 3, setOf(2)))
+    }
+
+    @Test
+    fun deadPagesFailOverButPlayersAndRealSitesDoNot() {
+        // Seen on a Chromecast with Google TV for movie 550.
+        assertTrue(EmbedPage.unavailable("404 Oops! Page not found Return to Home", players = 0))
+        assertTrue(EmbedPage.unavailable("Origin is unreachable Error code 523", players = 0))
+        assertFalse(EmbedPage.unavailable("FIGHT CLUB 1999", players = 1))
+        assertFalse(EmbedPage.unavailable("404 Not found", players = 1))
+        assertFalse(EmbedPage.unavailable("Fight Club " + "x".repeat(700) + " not found", players = 0))
+        assertTrue(EmbedPage.sentHome("https://airflix1.com/movie/550", "https://airflix1.com/"))
+        assertFalse(EmbedPage.sentHome("https://player.videasy.net/movie/550", "https://player.videasy.to/movie/550"))
+        assertFalse(EmbedPage.sentHome("https://vsembed.ru/embed/movie/550", "about:blank"))
+        assertTrue(EmbedPage.blanked("about:blank"))
+        assertEquals("server not found", EmbedPage.reason("net::ERR_NAME_NOT_RESOLVED"))
     }
 
     @Test
