@@ -99,6 +99,11 @@ data class EmbedServer(
     val tv: String,
     val supportsDub: Boolean = false,
     val web: Boolean = true,
+    /** Plain JSON subtitle list (`[{label,file}]`) the page itself fetches, or null. */
+    val subsMovie: String? = null,
+    val subsTv: String? = null,
+    /** False when the page streams without a plain .m3u8 request, so it can only play in the page. */
+    val sniffs: Boolean = true,
 ) {
     fun url(kind: MediaKind, id: Int, season: Int = 1, episode: Int = 1): String {
         val template = if (kind.isMovie) movie else tv
@@ -107,6 +112,12 @@ data class EmbedServer(
             .replace("{s}", season.toString())
             .replace("{e}", episode.toString())
     }
+
+    fun subsUrl(kind: MediaKind, id: Int, season: Int = 1, episode: Int = 1): String? =
+        (if (kind.isMovie) subsMovie else subsTv)
+            ?.replace("{id}", id.toString())
+            ?.replace("{s}", season.toString())
+            ?.replace("{e}", episode.toString())
 }
 
 object EmbedServers {
@@ -118,25 +129,41 @@ object EmbedServers {
         EmbedServer("VidFast", "VF", "https://vidfast.pro/movie/{id}", "https://vidfast.pro/tv/{id}/{s}/{e}"),
         EmbedServer("VidCore", "VC", "https://vidcore.net/embed/movie/{id}", "https://vidcore.net/embed/tv/{id}/{s}/{e}"),
         EmbedServer("Rive", "RIVE", "https://rivestream.org/embed?type=movie&id={id}", "https://rivestream.org/embed?type=tv&id={id}&season={s}&episode={e}"),
-        EmbedServer("VidZee", "ZEE", "https://player.vidzee.wtf/embed/movie/{id}", "https://player.vidzee.wtf/embed/tv/{id}?season={s}&episode={e}"),
+        // The site's own VidZee TV link (`/embed/tv/{id}?season=&episode=`) is a 404 page.
+        EmbedServer(
+            "VidZee", "ZEE", "https://player.vidzee.wtf/embed/movie/{id}", "https://player.vidzee.wtf/embed/tv/{id}/{s}/{e}",
+            subsMovie = "https://core.vidzee.wtf/subs/movie/{id}", subsTv = "https://core.vidzee.wtf/subs/tv/{id}/{s}/{e}",
+        ),
         EmbedServer("Airflix", "AIR", "https://airflix1.com/movie/{id}", "https://airflix1.com/tv/{id}/{s}/{e}"),
         EmbedServer("VidSync", "SYNC", "https://vidsync.xyz/embed/movie/{id}", "https://vidsync.xyz/embed/tv/{id}/{s}/{e}"),
-        EmbedServer("VidRock", "ROCK", "https://vidrock.net/embed/movie/{id}", "https://vidrock.net/embed/tv/{id}/{s}/{e}"),
+        EmbedServer(
+            "VidRock", "ROCK", "https://vidrock.net/embed/movie/{id}", "https://vidrock.net/embed/tv/{id}/{s}/{e}",
+            subsMovie = "https://sub.vdrk.site/v1/movie/{id}", subsTv = "https://sub.vdrk.site/v1/tv/{id}/{s}/{e}",
+        ),
         EmbedServer("Hexa", "HEXA", "https://hexa.su/embed/movie/{id}", "https://hexa.su/embed/tv/{id}/{s}/{e}"),
         EmbedServer("VidOra", "ORA", "https://vidora.su/embed/movie/{id}", "https://vidora.su/embed/tv/{id}/{s}/{e}"),
         EmbedServer("Peachify", "PEACH", "https://peachify.top/embed/movie/{id}", "https://peachify.top/embed/tv/{id}?season={s}&episode={e}", supportsDub = true),
-        EmbedServer("Mapple TV", "MAP", "https://mappletv.uk/embed/movie/{id}", "https://mappletv.uk/embed/tv/{id}/{s}/{e}"),
+        EmbedServer("Mapple TV", "MAP", "https://mappletv.uk/embed/movie/{id}", "https://mappletv.uk/embed/tv/{id}/{s}/{e}", sniffs = false),
         EmbedServer("VidKing", "KING", "https://vidking.net/embed/movie/{id}", "https://vidking.net/embed/tv/{id}/{s}/{e}"),
         EmbedServer("TouStream", "TOU", "https://toustream-play.chickenkiller.com/movie/{id}", "https://toustream-play.chickenkiller.com/tv/{id}/{s}/{e}"),
         EmbedServer("VidSrc Embed", "VSE", "https://vidsrc-embed.ru/embed/movie/{id}", "https://vidsrc-embed.ru/embed/tv/{id}/{s}/{e}"),
-        EmbedServer("111Movies", "111M", "https://111movies.net/movie/{id}", "https://111movies.net/tv/{id}?s={s}&e={e}"),
+        EmbedServer("111Movies", "111M", "https://111movies.net/movie/{id}", "https://111movies.net/tv/{id}?s={s}&e={e}", sniffs = false),
         EmbedServer("FMovies", "FM", "https://fmovies.gd/movie/{id}", "https://fmovies.gd/tv/{id}?s={s}&e={e}"),
         EmbedServer("CinemaOS", "COS", "https://cinemaos.tech/embed/movie/{id}", "https://cinemaos.tech/embed/tv/{id}?s={s}&e={e}"),
         EmbedServer("VidLux", "LUX", "https://vidlux.xyz/embed/movie/{id}", "https://vidlux.xyz/embed/tv/{id}/{s}/{e}"),
     )
 
-    /** Servers that can actually be loaded in a WebView, in the site's order. */
-    val playable: List<EmbedServer> = all.filter { it.web }
+    /**
+     * Tried first, because they returned a real stream in testing: VidZee and VidRock hand over an
+     * HLS playlist the native player can take, Mapple plays only inside its page. The site's first
+     * servers (VidSrc CC, Videasy) answer 403 to many networks, and VidCore's link is a 404 page.
+     */
+    val preferred = listOf("ZEE", "ROCK", "MAP", "111M")
+
+    /** Servers that can actually be loaded in a WebView: [preferred] first, then the site's order. */
+    val playable: List<EmbedServer> = all.filter { it.web }.let { web ->
+        preferred.mapNotNull { code -> web.firstOrNull { it.code == code } } + web.filter { it.code !in preferred }
+    }
 
     fun server(index: Int): EmbedServer = playable[index.coerceIn(0, playable.lastIndex)]
 }

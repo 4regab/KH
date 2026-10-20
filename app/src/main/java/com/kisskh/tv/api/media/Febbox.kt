@@ -8,7 +8,8 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /**
- * CineJoy playback. The watch page calls `https://feb.wing.st` with the viewer's Febbox token
+ * CineJoy's optional Febbox path (4K, more audio tracks). Without a token CineJoy still plays from
+ * its own servers, see [CineJoyWeb]. With one, the watch page calls `https://feb.wing.st` with the viewer's Febbox token
  * (`cinejoy_fem_token` in the site, sent as `?ui=`). No token is shipped in the bundle: a request
  * without `ui` is rejected. The useful reply is `sources` whose `url` contains `.m3u8`, best
  * quality first, plus `subtitles`.

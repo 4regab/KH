@@ -43,8 +43,9 @@ class MediaSourcesTest {
     @Test
     fun embedUrlsFollowTheSiteTemplates() {
         val servers = EmbedServers.playable
-        assertEquals("VCC", servers.first().code)
-        assertEquals("https://vsembed.ru/embed/movie/550", servers.first().url(MediaKind.MOVIE, 550))
+        // The site's order is kept in `all`; `playable` tries the servers that gave streams first.
+        assertEquals("VCC", EmbedServers.all.first().code)
+        assertEquals("https://vsembed.ru/embed/movie/550", EmbedServers.all.first().url(MediaKind.MOVIE, 550))
         assertEquals("https://vsembed.ru/embed/tv/1396/2/3", EmbedServers.all.first().url(MediaKind.TV, 1396, 2, 3))
         val two = EmbedServers.all.first { it.code == "2EM" }
         assertEquals("https://2embed.cc/embed/movie/550", two.url(MediaKind.MOVIE, 550))
