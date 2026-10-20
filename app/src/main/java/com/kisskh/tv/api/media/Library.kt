@@ -7,6 +7,12 @@ enum class Library(val label: String, val key: String) {
     CINEJOY("CineJoy", "cj"),
 }
 
+/** The source the app opens on. */
+val DEFAULT_LIBRARY = Library.CINEWAVE
+
+/** Source switch order: the default first. */
+val LIBRARY_ORDER = listOf(Library.CINEWAVE, Library.CINEJOY, Library.KISSKH)
+
 /** Movie, series, or CineWave's anime list (anime is still a TMDB TV record). */
 enum class MediaKind {
     MOVIE,

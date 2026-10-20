@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import androidx.tv.material3.Text
+import com.kisskh.tv.api.media.CineJoyWeb
 import com.kisskh.tv.api.media.MediaKind
 import com.kisskh.tv.api.media.TokenRequired
 import com.kisskh.tv.ui.AppViewModel
@@ -28,9 +28,6 @@ import com.kisskh.tv.ui.Dest
 import com.kisskh.tv.ui.UiState
 import com.kisskh.tv.ui.components.KhButton
 import com.kisskh.tv.ui.components.LoadingState
-import com.kisskh.tv.ui.components.focusIfRestoring
-import com.kisskh.tv.ui.components.rememberFocusRestore
-import com.kisskh.tv.ui.media.KhField
 import com.kisskh.tv.ui.media.rememberNextEpisode
 import com.kisskh.tv.ui.media.StreamRequest
 import com.kisskh.tv.ui.theme.KhColors
@@ -55,16 +52,9 @@ fun StreamPlayerScreen(vm: AppViewModel, dest: Dest.StreamPlayer) {
                 KhButton("Back", onClick = { vm.onBack() }, modifier = Modifier.align(Alignment.TopStart).padding(24.dp))
             }
             is UiState.Empty -> Message(s.message ?: "Febbox returned no video for this title.", onBack = { vm.onBack() }, onHome = { vm.goHome() })
+            // No token, or Febbox turned the token down: play CineJoy's own watch page, which finds a stream itself.
             is UiState.Error -> if (s.cause is TokenRequired) {
-                TokenPrompt(
-                    message = s.message,
-                    onSave = { token ->
-                        vm.media.saveToken(token)
-                        vm.media.loadStream(request)
-                    },
-                    onBack = { vm.onBack() },
-                    onHome = { vm.goHome() },
-                )
+                CineJoyWebPlayer(vm, dest, next, showEpisodes)
             } else {
                 Message(
                     message = s.message,
@@ -111,6 +101,27 @@ fun StreamPlayerScreen(vm: AppViewModel, dest: Dest.StreamPlayer) {
     }
 }
 
+@Composable
+private fun CineJoyWebPlayer(vm: AppViewModel, dest: Dest.StreamPlayer, next: Int?, showEpisodes: Boolean) {
+    val movie = dest.kind == MediaKind.MOVIE
+    val sources = remember(dest.progressKey) {
+        listOf(WebSource("CineJoy", "CJ", CineJoyWeb.watchUrl(movie, dest.tmdbId, dest.season, dest.episode)))
+    }
+    WebPlayer(
+        key = dest.progressKey,
+        title = dest.title.ifBlank { "CineJoy" },
+        label = dest.label,
+        sources = sources,
+        referer = null,
+        onBack = { vm.onBack() },
+        onHome = { vm.goHome() },
+        onEpisodes = if (showEpisodes) ({ vm.onBack() }) else null,
+        onNext = next?.let { episode -> { vm.switchStream(dest.copy(episode = episode, episodeName = "")) } },
+        // The site picks its own layout from the browser. Its normal Android one fits a TV screen.
+        userAgent = null,
+    )
+}
+
 private fun Dest.StreamPlayer.toRequest() = StreamRequest(
     key = progressKey,
     title = title,
@@ -120,28 +131,6 @@ private fun Dest.StreamPlayer.toRequest() = StreamRequest(
     season = season,
     episode = episode,
 )
-
-@Composable
-private fun TokenPrompt(
-    message: String,
-    onSave: (String) -> Unit,
-    onBack: () -> Unit,
-    onHome: () -> Unit,
-) {
-    var draft by remember { mutableStateOf("") }
-    val restore = rememberFocusRestore("field")
-    Column(
-        Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(message, style = KhTheme.typography.title, color = KhColors.TextPrimary, textAlign = TextAlign.Center)
-        KhField(draft, { draft = it }, "Febbox token", Modifier.fillMaxWidth().focusIfRestoring(restore, "field"))
-        KhButton("Save and play", primary = true, onClick = { onSave(draft) }, enabled = draft.isNotBlank())
-        KhButton("Back", onClick = onBack)
-        KhButton("Home", onClick = onHome)
-    }
-}
 
 @Composable
 private fun Message(

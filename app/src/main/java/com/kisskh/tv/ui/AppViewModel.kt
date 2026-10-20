@@ -16,6 +16,7 @@ import com.kisskh.tv.api.SortOrder
 import com.kisskh.tv.api.SubtitleFile
 import com.kisskh.tv.api.availableTabs
 import com.kisskh.tv.api.suspendCatching
+import com.kisskh.tv.api.media.DEFAULT_LIBRARY
 import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.ui.home.HomeRails
 import com.kisskh.tv.ui.media.MediaSession
@@ -64,7 +65,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- navigation
 
-    private val _nav = MutableStateFlow(NavState())
+    // The app opens on CineWave. KissKH and CineJoy are one press away on the source switch.
+    private val _nav = MutableStateFlow(NavState(library = DEFAULT_LIBRARY))
 
     /** The back stack. Draw `nav.current`; highlight `nav.activeTab` on the rail. */
     val nav: StateFlow<NavState> = _nav.asStateFlow()

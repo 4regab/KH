@@ -45,7 +45,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
-import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.kisskh.tv.R
@@ -88,7 +87,7 @@ fun NavRail(
     library: Library,
     labelOf: (RootTab) -> String,
     onSelect: (RootTab) -> Unit,
-    onSelectLibrary: (Library) -> Unit,
+    onOpenSources: () -> Unit,
     onFocusChanged: (Boolean) -> Unit,
     onEnterContent: () -> Boolean,
     modifier: Modifier = Modifier,
@@ -135,6 +134,13 @@ fun NavRail(
                     modifier = Modifier.width(40.dp),
                 )
             }
+            // The current source sits at the top, where Netflix puts the profile.
+            SourceItem(
+                library = library,
+                labelAlpha = labelAlpha,
+                onClick = onOpenSources,
+                modifier = Modifier.padding(top = 20.dp),
+            )
             Spacer(Modifier.weight(1f))
             Column {
                 tabs.forEach { tab ->
@@ -147,17 +153,8 @@ fun NavRail(
                         modifier = Modifier.focusRequester(requesters.getValue(tab)),
                     )
                 }
-                Spacer(Modifier.height(12.dp))
-                Library.entries.forEach { source ->
-                    LibraryItem(
-                        library = source,
-                        selected = source == library,
-                        labelAlpha = labelAlpha,
-                        onClick = { onSelectLibrary(source) },
-                    )
-                }
             }
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.weight(1.4f))
         }
     }
 }
@@ -217,53 +214,43 @@ private fun RailItem(
 }
 
 @Composable
-private fun LibraryItem(
+private fun SourceItem(
     library: Library,
-    selected: Boolean,
     labelAlpha: Float,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val mark = when (library) {
-        Library.KISSKH -> "KH"
-        Library.CINEWAVE -> "CW"
-        Library.CINEJOY -> "CJ"
-    }
     KhFocusable(
         onClick = onClick,
-        modifier = Modifier
+        modifier = modifier
             .width(if (labelAlpha > 0.2f) RailExpandedWidth else RailCollapsedWidth)
-            .height(40.dp)
-            .semantics {
-                contentDescription = "Source ${library.label}"
-                this.selected = selected
-            },
+            .height(52.dp)
+            .semantics { contentDescription = "Source: ${library.label}. Switch source" },
         shape = RoundedCornerShape(8.dp),
         scaleAndLift = false,
     ) { focused ->
-        val tint = if (selected || focused) KhColors.TextPrimary else KhColors.TextSecondary
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(RailCollapsedWidth).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                Text(mark, color = tint, fontSize = 12.sp, maxLines = 1)
-                if (selected) {
-                    Box(
-                        Modifier
-                            .align(Alignment.CenterStart)
-                            .padding(start = 6.dp)
-                            .width(3.dp)
-                            .height(18.dp)
-                            .background(KhColors.Brand, RoundedCornerShape(2.dp)),
-                    )
-                }
+                SourceAvatar(library, size = 34.dp)
             }
-            Text(
-                library.label,
-                style = KhTheme.typography.railLabel,
-                color = tint,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Clip,
-                modifier = Modifier.graphicsLayer { alpha = labelAlpha },
-            )
+            Column(Modifier.graphicsLayer { alpha = labelAlpha }) {
+                Text(
+                    library.label,
+                    style = KhTheme.typography.railLabel,
+                    color = KhColors.TextPrimary,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                )
+                Text(
+                    "Switch source",
+                    style = KhTheme.typography.caption,
+                    color = if (focused) KhColors.TextPrimary else KhColors.TextSecondary,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                )
+            }
         }
     }
 }

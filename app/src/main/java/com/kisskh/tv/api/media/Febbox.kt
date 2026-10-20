@@ -214,5 +214,17 @@ class FebboxClient(private val http: OkHttpClient = defaultHttp()) {
     }
 }
 
+/**
+ * CineJoy's own watch page. Without a Febbox token the site gets the stream from its provider API
+ * itself (requests sealed by its own script), so the app shows that page instead of asking for a token.
+ */
+object CineJoyWeb {
+    const val ORIGIN = "https://cinejoy.pk"
+
+    fun watchUrl(movie: Boolean, id: Int, season: Int, episode: Int): String =
+        if (movie) "$ORIGIN/watch/movie/$id"
+        else "$ORIGIN/watch/tv/$id/${season.coerceAtLeast(1)}/${episode.coerceAtLeast(1)}"
+}
+
 /** Raised when CineJoy cannot ask Febbox for a stream until the viewer supplies a token. */
 class TokenRequired(message: String) : Exception(message)

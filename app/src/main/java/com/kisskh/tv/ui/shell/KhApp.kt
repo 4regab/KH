@@ -28,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -103,9 +105,17 @@ fun KhApp(
         }
     }
 
+    // Like Netflix on TV: Back on a top screen opens the menu first; Back on the open menu there exits.
+    val railFocus = remember { FocusRequester() }
     BackHandler {
-        if (showRail && railFocused && enterContent()) return@BackHandler
-        if (!vm.onBack()) onExit()
+        val root = nav.stack.size <= 1
+        if (showRail && railFocused) {
+            if (root) onExit() else if (!enterContent() && !vm.onBack()) onExit()
+            return@BackHandler
+        }
+        if (vm.onBack()) return@BackHandler
+        if (showRail && runCatching { railFocus.requestFocus() }.isSuccess) return@BackHandler
+        onExit()
     }
 
     KhScrollDefaults {
@@ -116,6 +126,7 @@ fun KhApp(
                     nav = nav,
                     showRail = showRail,
                     railFocused = railFocused,
+                    railFocus = railFocus,
                     onRailFocus = { railFocused = it },
                     onEnterContent = enterContent,
                     onSelectTab = { tab ->
@@ -168,6 +179,7 @@ private fun TvScaffold(
     nav: NavState,
     showRail: Boolean,
     railFocused: Boolean,
+    railFocus: FocusRequester,
     onRailFocus: (Boolean) -> Unit,
     onEnterContent: () -> Boolean,
     onSelectTab: (RootTab) -> Unit,
@@ -179,6 +191,8 @@ private fun TvScaffold(
         animationSpec = tween(KhMotion.RailExpandMillis, easing = KhMotion.EaseOutStrong),
         label = "railScrim",
     )
+    var picking by remember { mutableStateOf(false) }
+    LaunchedEffect(showRail) { if (!showRail) picking = false }
     Box(Modifier.fillMaxSize().background(KhColors.Background)) {
         ScreenBody(
             vm = vm,
@@ -208,10 +222,23 @@ private fun TvScaffold(
                 library = nav.library,
                 labelOf = { it.labelFor(nav.library) },
                 onSelect = onSelectTab,
-                onSelectLibrary = onSelectLibrary,
+                onOpenSources = { picking = true },
                 onFocusChanged = onRailFocus,
                 onEnterContent = onEnterContent,
-                modifier = Modifier.align(Alignment.CenterStart),
+                modifier = Modifier.align(Alignment.CenterStart).focusRequester(railFocus),
+            )
+        }
+        if (picking) {
+            SourcePicker(
+                current = nav.library,
+                onPick = { library ->
+                    picking = false
+                    if (library != nav.library) onSelectLibrary(library) else onEnterContent()
+                },
+                onDismiss = {
+                    picking = false
+                    onEnterContent()
+                },
             )
         }
     }
@@ -270,8 +297,8 @@ private fun ScreenBody(
     key(screenKey(nav)) {
         Box(modifier) {
             when (val d = nav.current) {
-                is Dest.Home -> if (nav.library == Library.KISSKH) HomeScreen(vm, d) else MediaHomeScreen(vm, nav.library)
-                is Dest.Search -> if (nav.library == Library.KISSKH) SearchScreen(vm, d) else MediaSearchScreen(vm)
+                is Dest.Home -> if (nav.library == Library.KISSKH) HomeScreen(vm, d) else MediaHomeScreen(vm, nav.library, d)
+                is Dest.Search -> if (nav.library == Library.KISSKH) SearchScreen(vm, d) else MediaSearchScreen(vm, nav.library, d)
                 is Dest.Catalog -> CatalogScreen(vm, d)
                 is Dest.Countries -> CountriesScreen(vm, d)
                 is Dest.Detail -> DetailScreen(vm, d)

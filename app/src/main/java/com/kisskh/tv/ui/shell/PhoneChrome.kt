@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.kisskh.tv.R
+import com.kisskh.tv.api.media.LIBRARY_ORDER
 import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.ui.RootTab
 import com.kisskh.tv.ui.theme.KhColors
@@ -99,7 +100,7 @@ fun SourceBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Library.entries.forEach { source ->
+        LIBRARY_ORDER.forEach { source ->
             val on = source == library
             KhFocusable(
                 onClick = { onSelect(source) },

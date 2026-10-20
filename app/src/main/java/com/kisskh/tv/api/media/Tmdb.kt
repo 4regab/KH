@@ -28,8 +28,11 @@ object TmdbPaths {
     fun onTheAir(page: Int = 1) = "/tv/on_the_air?page=$page"
     fun search(query: String) = "/search/multi?query=${encode(query)}"
 
-    fun movie(id: Int) = "/movie/$id?append_to_response=release_dates,credits,recommendations,external_ids"
-    fun tv(id: Int) = "/tv/$id?append_to_response=content_ratings,credits,recommendations,external_ids"
+    // `images` with English or textless files gives the title logo for the detail page.
+    fun movie(id: Int) =
+        "/movie/$id?append_to_response=release_dates,credits,recommendations,external_ids,images&include_image_language=en,null"
+    fun tv(id: Int) =
+        "/tv/$id?append_to_response=content_ratings,credits,recommendations,external_ids,images&include_image_language=en,null"
     fun season(id: Int, number: Int) = "/tv/$id/season/$number"
 
     /** CineWave's anime row, including the page the site fixes at 1. */
@@ -89,6 +92,9 @@ data class TmdbTitle(
     /** 16:9 art. Backdrop first, poster when that is missing. */
     val artwork: String? get() = backdrop ?: poster
 
+    /** Full-screen art: the backdrop at 1280 px wide, so a 1080p screen does not show a blurry upscale. */
+    val hero: String? get() = backdrop?.replace("/w780/", "/w1280/") ?: poster
+
     fun voteText(): String? = vote?.takeIf { it > 0 }?.let { java.lang.String.format(java.util.Locale.US, "%.1f", it) }
 }
 
@@ -107,6 +113,14 @@ data class TmdbTitleDetails(
     val seasons: List<TmdbSeasonInfo>,
     val recommendations: List<TmdbTitle>,
     val certification: String?,
+    val genres: List<String> = emptyList(),
+    /** Movie length in minutes. */
+    val runtime: Int? = null,
+    /** The first billed cast, at most four names. */
+    val cast: List<String> = emptyList(),
+    /** The English (or textless) title logo, transparent PNG. */
+    val logo: String? = null,
+    val tagline: String? = null,
 )
 
 data class TmdbPage(val items: List<TmdbTitle>, val page: Int, val totalPages: Int)
@@ -143,6 +157,11 @@ object TmdbJson {
             var seasons = emptyList<TmdbSeasonInfo>()
             var recommendations = emptyList<TmdbTitle>()
             var certification: String? = null
+            var genres = emptyList<String>()
+            var runtime: Int? = null
+            var cast = emptyList<String>()
+            var logo: String? = null
+            var tagline: String? = null
             reader.obj {
                 when (val name = reader.nextName()) {
                     "id" -> id = reader.intOrNull()
@@ -159,6 +178,11 @@ object TmdbJson {
                     "recommendations" -> recommendations = reader.nestedResults(null)
                     "release_dates" -> certification = reader.usReleaseCertification() ?: certification
                     "content_ratings" -> certification = reader.usContentRating() ?: certification
+                    "genres" -> genres = reader.names("name")
+                    "runtime" -> runtime = reader.intOrNull()?.takeIf { it > 0 }
+                    "credits" -> cast = reader.castNames()
+                    "images" -> logo = reader.firstLogo()
+                    "tagline" -> tagline = reader.stringOrNull()?.trim()?.takeIf { it.isNotEmpty() }
                     else -> {
                         if (name == "status_message") throw IllegalStateException(reader.nextString())
                         reader.skipValue()
@@ -184,8 +208,80 @@ object TmdbJson {
                 seasons = seasons,
                 recommendations = recommendations,
                 certification = certification?.takeIf { it.isNotBlank() },
+                genres = genres,
+                runtime = runtime,
+                cast = cast,
+                logo = TmdbPaths.image(logo, "w500"),
+                tagline = tagline,
             )
         }
+
+    /** The [field] string of each object in an array, for example the genre names. */
+    private fun JsonReader.names(field: String): List<String> {
+        if (peek() != JsonReader.Token.BEGIN_ARRAY) {
+            skipValue()
+            return emptyList()
+        }
+        val out = ArrayList<String>()
+        beginArray()
+        while (hasNext()) {
+            if (peek() != JsonReader.Token.BEGIN_OBJECT) {
+                skipValue()
+                continue
+            }
+            var value: String? = null
+            obj { if (nextName() == field) value = stringOrNull() else skipValue() }
+            value?.trim()?.takeIf { it.isNotEmpty() }?.let { out += it }
+        }
+        endArray()
+        return out
+    }
+
+    private fun JsonReader.castNames(): List<String> {
+        if (peek() != JsonReader.Token.BEGIN_OBJECT) {
+            skipValue()
+            return emptyList()
+        }
+        var cast = emptyList<String>()
+        obj { if (nextName() == "cast") cast = names("name").take(4) else skipValue() }
+        return cast
+    }
+
+    /** TMDB sorts logos by vote, so the first English or textless one is the best. */
+    private fun JsonReader.firstLogo(): String? {
+        if (peek() != JsonReader.Token.BEGIN_OBJECT) {
+            skipValue()
+            return null
+        }
+        var english: String? = null
+        var textless: String? = null
+        obj {
+            if (nextName() == "logos" && peek() == JsonReader.Token.BEGIN_ARRAY) {
+                beginArray()
+                while (hasNext()) {
+                    if (peek() != JsonReader.Token.BEGIN_OBJECT) {
+                        skipValue()
+                        continue
+                    }
+                    var path: String? = null
+                    var lang: String? = null
+                    obj {
+                        when (nextName()) {
+                            "file_path" -> path = stringOrNull()
+                            "iso_639_1" -> lang = stringOrNull()
+                            else -> skipValue()
+                        }
+                    }
+                    if (path != null && lang == "en" && english == null) english = path
+                    if (path != null && lang == null && textless == null) textless = path
+                }
+                endArray()
+            } else {
+                skipValue()
+            }
+        }
+        return english ?: textless
+    }
 
     fun episodes(json: String): List<TmdbEpisode> =
         JsonReader.of(Buffer().writeUtf8(json)).use { reader ->

@@ -229,6 +229,29 @@ object EmbedPolicy {
         return blocked.any { h == it || h.endsWith(".$it") }
     }
 
+    /**
+     * True when a tap moved the whole page to another site. Embed players hide ads under their play
+     * button: the tap that should start the video opens an ad page instead (sometimes an adult one).
+     * Server redirects, and moves within the same site (www.a.com to cdn.a.com), are not counted.
+     */
+    fun hijack(currentUrl: String?, targetUrl: String, afterTap: Boolean, redirect: Boolean): Boolean {
+        if (!afterTap || redirect) return false
+        val from = site(currentUrl) ?: return false
+        val to = site(targetUrl) ?: return false
+        return from != to
+    }
+
+    /** The last two labels of the host: `player.vidsrc.cc` is `vidsrc.cc`. */
+    private fun site(url: String?): String? {
+        if (url == null) return null
+        val host = try {
+            URI(url).host
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return host.lowercase().trim('.').split('.').takeLast(2).joinToString(".")
+    }
+
     fun decide(url: String, mainFrame: Boolean): EmbedNav {
         val uri = try {
             URI(url)

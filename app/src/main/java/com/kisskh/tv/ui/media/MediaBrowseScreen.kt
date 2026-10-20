@@ -15,14 +15,11 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.kisskh.tv.api.media.MediaKind
@@ -50,7 +47,6 @@ import androidx.compose.runtime.snapshotFlow
 fun MediaBrowseScreen(vm: AppViewModel, dest: Dest.MediaBrowse) {
     val state by remember(dest.kind, dest.latest) { vm.media.browse(dest.kind, dest.latest) }.collectAsStateWithLifecycle()
     val tv = KhTheme.formFactor == FormFactor.TV
-    var focused by remember(dest.browseKey) { mutableStateOf<TmdbTitle?>(null) }
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(start = screenStart(), end = 24.dp, top = 12.dp, bottom = 4.dp),
@@ -71,16 +67,6 @@ fun MediaBrowseScreen(vm: AppViewModel, dest: Dest.MediaBrowse) {
                 KhChip("Latest", selected = dest.latest, onClick = { vm.setMediaSort(true) })
             }
         }
-        if (tv) {
-            Text(
-                focused?.name ?: " ",
-                style = KhTheme.typography.title,
-                color = KhColors.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = screenStart(), end = 24.dp, bottom = 4.dp),
-            )
-        }
         val error = state.error
         when {
             state.loading && state.items.isEmpty() -> LoadingState(message = "Loading")
@@ -97,7 +83,7 @@ fun MediaBrowseScreen(vm: AppViewModel, dest: Dest.MediaBrowse) {
                 moreError = state.error,
                 end = state.page >= state.totalPages,
                 onOpen = { vm.openTitle(it, dest.kind) },
-                onFocused = { focused = it },
+                onFocused = {},
                 onLoadMore = { vm.media.loadMore(dest.kind, dest.latest) },
                 onRetryMore = { vm.media.retryMore(dest.kind, dest.latest) },
             )
@@ -120,7 +106,7 @@ private fun MediaGrid(
     val gap = cardGap()
     val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(gridCardMinWidth()),
+        columns = GridCells.Adaptive(if (names) 104.dp else gridCardMinWidth()),
         state = gridState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = screenContentPadding(),
@@ -130,7 +116,7 @@ private fun MediaGrid(
         itemsIndexed(items, key = { _, item -> "${item.mediaType}:${item.id}" }) { _, item ->
             MediaCard(
                 title = item,
-                showName = names,
+                poster = names,
                 onClick = { onOpen(item) },
                 onFocused = { onFocused(item) },
                 modifier = Modifier.fillMaxWidth(),

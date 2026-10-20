@@ -92,6 +92,15 @@ class MediaSourcesTest {
     }
 
     @Test
+    fun aTapThatLeavesForAnotherSiteIsAHijack() {
+        val page = "https://vidsrc.cc/v2/embed/movie/550"
+        assertTrue(EmbedPolicy.hijack(page, "https://ad.example.com/landing", afterTap = true, redirect = false))
+        assertFalse(EmbedPolicy.hijack(page, "https://player.vidsrc.cc/next", afterTap = true, redirect = false))
+        assertFalse(EmbedPolicy.hijack(page, "https://ad.example.com/landing", afterTap = false, redirect = false))
+        assertFalse(EmbedPolicy.hijack(page, "https://mirror.example.net/movie/550", afterTap = true, redirect = true))
+    }
+
+    @Test
     fun tmdbPathsMatchTheSites() {
         assertEquals(
             "https://api.themoviedb.org/3/trending/movie/day?api_key=8476a7ab80ad76f0936744df0430e67c",
@@ -253,6 +262,20 @@ class MediaSourcesTest {
         token.set("  ")
         assertEquals("", token.get())
         assertFalse(tokenPrefs.all.keys.any { it.startsWith("ep_") })
+    }
+
+    @Test
+    fun cineJoyWatchPageUrls() {
+        assertEquals("https://cinejoy.pk/watch/movie/550", com.kisskh.tv.api.media.CineJoyWeb.watchUrl(true, 550, 1, 1))
+        assertEquals("https://cinejoy.pk/watch/tv/1396/1/2", com.kisskh.tv.api.media.CineJoyWeb.watchUrl(false, 1396, 1, 2))
+        assertEquals("https://cinejoy.pk/watch/tv/1396/1/1", com.kisskh.tv.api.media.CineJoyWeb.watchUrl(false, 1396, 0, 0))
+    }
+
+    @Test
+    fun appOpensOnCineWaveAndListsItFirst() {
+        assertEquals(Library.CINEWAVE, com.kisskh.tv.api.media.DEFAULT_LIBRARY)
+        assertEquals(Library.CINEWAVE, com.kisskh.tv.api.media.LIBRARY_ORDER.first())
+        assertEquals(Library.entries.toSet(), com.kisskh.tv.api.media.LIBRARY_ORDER.toSet())
     }
 
     @Test

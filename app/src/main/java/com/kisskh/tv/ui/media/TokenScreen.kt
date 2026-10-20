@@ -60,7 +60,7 @@ fun TokenScreen(vm: AppViewModel) {
     ) {
         Text("Febbox token", style = KhTheme.typography.heading, color = KhColors.TextPrimary)
         Text(
-            "CineJoy asks Febbox for the video. Paste the token from the site (saved in the browser as cinejoy_fem_token). Without it, Febbox refuses the stream.",
+            "Optional. CineJoy plays without a token. With a Febbox token (saved in the site as cinejoy_fem_token), the app plays the Febbox stream in its own player, with subtitles and resume.",
             style = KhTheme.typography.body,
             color = KhColors.TextSecondary,
         )
