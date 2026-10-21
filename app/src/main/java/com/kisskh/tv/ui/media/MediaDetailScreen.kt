@@ -54,6 +54,8 @@ import com.kisskh.tv.api.media.MediaEntry
 import com.kisskh.tv.api.media.MediaKeys
 import com.kisskh.tv.api.media.MediaKind
 import com.kisskh.tv.api.media.TmdbEpisode
+import com.kisskh.tv.api.media.TmdbPaths
+import com.kisskh.tv.api.media.TmdbSeasonInfo
 import com.kisskh.tv.api.media.TmdbTitleDetails
 import com.kisskh.tv.ui.AppViewModel
 import com.kisskh.tv.ui.Dest
@@ -86,6 +88,9 @@ private const val EPISODE_START = "ep:start"
 
 /** List index of the season block, and of More Like This on a movie. */
 private const val SECOND_ITEM = 1
+
+/** List index of the first episode row: after the hero and the season header. */
+private const val FIRST_EPISODE_ITEM = 2
 
 private fun episodeKey(number: Int) = "ep:$number"
 
@@ -122,9 +127,32 @@ private fun DetailBody(vm: AppViewModel, library: Library, dest: Dest.MediaDetai
     RegisterFocusSaver(tracker, restore) { vm.saveFocus(tracker.key, 0) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    // Back from the player on an episode: that row is in the season block, so make sure it exists.
-    LaunchedEffect(Unit) {
-        if (restore.key?.startsWith("ep:") == true || restore.key?.startsWith("season:") == true) listState.revealIndex(SECOND_ITEM)
+    // Specials (season 0) are left out: Febbox and the embed links only take season 1 and up.
+    val seasons = remember(details) { details.seasons.filter { it.number >= 1 } }
+    val hasEpisodes = !kind.isMovie && seasons.isNotEmpty()
+    var seasonNumber by remember(title.id) {
+        mutableIntStateOf(saved?.season?.takeIf { n -> seasons.any { it.number == n } } ?: seasons.firstOrNull()?.number ?: 1)
+    }
+    val seasonFlow = remember(title.id, seasonNumber, hasEpisodes) { if (hasEpisodes) vm.media.season(title.id, seasonNumber) else null }
+    val seasonState = seasonFlow?.collectAsStateWithLifecycle()?.value
+    val episodes = (seasonState as? UiState.Success)?.data.orEmpty()
+    val today = remember { TmdbPaths.todayUtc() }
+    val resumeAt = if (saved != null && saved.season == seasonNumber) episodes.firstOrNull { it.number == saved.episode } else null
+    val start = resumeAt ?: episodes.firstOrNull { it.aired(today) } ?: episodes.firstOrNull()
+    // Episode rows are separate list items, so only the ones on screen are built. Back from the player, or the
+    // Episodes button: bring the wanted row on screen first, so it exists and can take focus.
+    LaunchedEffect(restore.key, restore.pending, episodes) {
+        val wanted = restore.key ?: return@LaunchedEffect
+        if (!restore.pending) return@LaunchedEffect
+        val row = when {
+            wanted == EPISODE_START -> start?.let { episodes.indexOf(it) } ?: -1
+            wanted.startsWith("ep:") -> episodes.indexOfFirst { episodeKey(it.number) == wanted }
+            else -> -1
+        }
+        when {
+            row >= 0 -> listState.revealIndex(FIRST_EPISODE_ITEM + row)
+            wanted.startsWith("season:") -> listState.revealIndex(SECOND_ITEM)
+        }
     }
     val play: () -> Unit = {
         vm.saveFocus(START_KEY, 0)
@@ -172,7 +200,34 @@ private fun DetailBody(vm: AppViewModel, library: Library, dest: Dest.MediaDetai
                 }
             }
             if (!kind.isMovie) {
-                item(key = "seasons") { SeasonBlock(vm, library, kind, details, saved, restore, tracker) }
+                item(key = "seasons") {
+                    SeasonHeader(
+                        seasons = seasons,
+                        seasonNumber = seasonNumber,
+                        onSeason = { seasonNumber = it },
+                        state = seasonState,
+                        onRetry = { vm.media.retrySeason(title.id, seasonNumber) },
+                        restore = restore,
+                        tracker = tracker,
+                    )
+                }
+                items(episodes, key = { episodeKey(it.number) }) { episode ->
+                    val rowKey = episodeKey(episode.number)
+                    EpisodeRow(
+                        episode = episode,
+                        upcoming = if (episode.aired(today)) null else airsLabel(episode.airDate),
+                        resume = episode === resumeAt,
+                        progress = vm.media.progress.fraction(MediaKeys.episode(library.key, title.id, seasonNumber, episode.number)),
+                        onClick = {
+                            vm.saveFocus(rowKey, 0)
+                            vm.playMedia(library, kind, details, seasonNumber, episode)
+                        },
+                        modifier = Modifier
+                            .let { if (episode === start) it.focusIfRestoring(restore, EPISODE_START) else it }
+                            .focusIfRestoring(restore, rowKey)
+                            .onFocusChanged { if (it.isFocused) tracker.key = rowKey },
+                    )
+                }
             }
             if (details.recommendations.isNotEmpty()) {
                 item(key = "more") { MoreLikeThis(vm, details, restore, tracker, tv) }
@@ -283,19 +338,21 @@ private fun PlayButtons(
     }
 }
 
+/**
+ * The top of the episode list: the heading, the season chips, and the loading, error or empty message.
+ * The rows are separate list items (a long show has hundreds), so only the ones on screen get built.
+ */
 @Composable
-private fun SeasonBlock(
-    vm: AppViewModel,
-    library: Library,
-    kind: MediaKind,
-    details: TmdbTitleDetails,
-    saved: MediaEntry?,
+private fun SeasonHeader(
+    seasons: List<TmdbSeasonInfo>,
+    seasonNumber: Int,
+    onSeason: (Int) -> Unit,
+    state: UiState<List<TmdbEpisode>>?,
+    onRetry: () -> Unit,
     restore: FocusRestore,
     tracker: FocusTracker,
 ) {
     val tv = KhTheme.formFactor == FormFactor.TV
-    // Specials (season 0) are left out: Febbox and the embed links only take season 1 and up.
-    val seasons = details.seasons.filter { it.number >= 1 }
     Column(Modifier.fillMaxWidth().padding(top = if (tv) 8.dp else 20.dp)) {
         Text(
             "Episodes",
@@ -307,12 +364,6 @@ private fun SeasonBlock(
             EmptyState("No episodes yet.", modifier = Modifier.fillMaxWidth().height(120.dp))
             return
         }
-        var seasonNumber by remember(details.title.id) {
-            mutableIntStateOf(saved?.season?.takeIf { seasons.any { s -> s.number == it } } ?: seasons.first().number)
-        }
-        val seasonState by remember(details.title.id, seasonNumber) {
-            vm.media.season(details.title.id, seasonNumber)
-        }.collectAsStateWithLifecycle()
         if (seasons.size > 1) {
             LazyRow(
                 contentPadding = PaddingValues(start = screenStart(), end = 24.dp, bottom = 6.dp),
@@ -323,7 +374,7 @@ private fun SeasonBlock(
                     KhChip(
                         text = season.name,
                         selected = season.number == seasonNumber,
-                        onClick = { seasonNumber = season.number },
+                        onClick = { onSeason(season.number) },
                         modifier = Modifier
                             .focusIfRestoring(restore, key)
                             .onFocusChanged { if (it.isFocused) tracker.key = key },
@@ -331,35 +382,11 @@ private fun SeasonBlock(
                 }
             }
         }
-        when (val s = seasonState) {
-            UiState.Loading -> LoadingState(message = "Loading episodes", modifier = Modifier.fillMaxWidth().height(160.dp))
-            is UiState.Error -> ErrorState(
-                s.message,
-                onRetry = { vm.media.retrySeason(details.title.id, seasonNumber) },
-                modifier = Modifier.fillMaxWidth().height(180.dp),
-            )
+        when (val s = state) {
+            null, UiState.Loading -> LoadingState(message = "Loading episodes", modifier = Modifier.fillMaxWidth().height(160.dp))
+            is UiState.Error -> ErrorState(s.message, onRetry = onRetry, modifier = Modifier.fillMaxWidth().height(180.dp))
             is UiState.Empty -> EmptyState(s.message ?: "No episodes in this season.", modifier = Modifier.fillMaxWidth().height(120.dp))
-            is UiState.Success -> {
-                val episodes = s.data
-                val resumeAt = if (saved != null && saved.season == seasonNumber) episodes.firstOrNull { it.number == saved.episode } else null
-                val start = resumeAt ?: episodes.first()
-                episodes.forEach { episode ->
-                    val rowKey = episodeKey(episode.number)
-                    EpisodeRow(
-                        episode = episode,
-                        resume = episode === resumeAt,
-                        progress = vm.media.progress.fraction(MediaKeys.episode(library.key, details.title.id, seasonNumber, episode.number)),
-                        onClick = {
-                            vm.saveFocus(rowKey, 0)
-                            vm.playMedia(library, kind, details, seasonNumber, episode)
-                        },
-                        modifier = Modifier
-                            .let { if (episode === start) it.focusIfRestoring(restore, EPISODE_START) else it }
-                            .focusIfRestoring(restore, rowKey)
-                            .onFocusChanged { if (it.isFocused) tracker.key = rowKey },
-                    )
-                }
-            }
+            is UiState.Success -> Unit
         }
     }
 }
@@ -367,6 +394,7 @@ private fun SeasonBlock(
 @Composable
 private fun EpisodeRow(
     episode: TmdbEpisode,
+    upcoming: String?,
     resume: Boolean,
     progress: Float?,
     onClick: () -> Unit,
@@ -374,9 +402,13 @@ private fun EpisodeRow(
 ) {
     val tv = KhTheme.formFactor == FormFactor.TV
     val stillWidth: Dp = if (tv) 200.dp else 132.dp
+    // Not out yet: shown, dimmed and not selectable, so the remote skips it instead of opening a player
+    // that can never load.
     KhFocusable(
         onClick = onClick,
+        enabled = upcoming == null,
         modifier = modifier
+            .graphicsLayer { alpha = if (upcoming == null) 1f else 0.5f }
             .padding(start = screenStart() - 8.dp, end = if (tv) KhTheme.spacing.safeHorizontal else 8.dp, top = 2.dp, bottom = 2.dp)
             .then(if (tv) Modifier.widthIn(max = 880.dp) else Modifier)
             .fillMaxWidth(),
@@ -396,7 +428,7 @@ private fun EpisodeRow(
                     Modifier
                         .align(Alignment.Center)
                         .size(if (tv) 40.dp else 32.dp)
-                        .graphicsLayer { alpha = if (focused || !tv) 1f else 0f }
+                        .graphicsLayer { alpha = if (upcoming == null && (focused || !tv)) 1f else 0f }
                         .background(Color.Black.copy(alpha = 0.55f), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -417,6 +449,14 @@ private fun EpisodeRow(
                     val runtime = runtimeText(episode.runtime)
                     if (runtime != null) {
                         Text(runtime, style = KhTheme.typography.caption, color = KhColors.TextSecondary, modifier = Modifier.padding(start = 10.dp))
+                    }
+                    if (upcoming != null) {
+                        Text(
+                            upcoming,
+                            style = KhTheme.typography.caption,
+                            color = KhColors.TextPrimary,
+                            modifier = Modifier.padding(start = 10.dp),
+                        )
                     }
                     if (resume) {
                         Text(
@@ -474,4 +514,13 @@ private fun MoreLikeThis(vm: AppViewModel, details: TmdbTitleDetails, restore: F
             }
         }
     }
+}
+
+/** "Airs Oct 23" for an episode that is not out yet. */
+private fun airsLabel(date: String?): String {
+    val parts = date?.split("-")?.mapNotNull { it.toIntOrNull() } ?: return "Coming soon"
+    if (parts.size != 3) return "Coming soon"
+    val month = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec").getOrNull(parts[1] - 1)
+        ?: return "Coming soon"
+    return "Airs $month ${parts[2]}"
 }

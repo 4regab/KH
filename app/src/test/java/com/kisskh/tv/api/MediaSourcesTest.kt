@@ -15,6 +15,7 @@ import com.kisskh.tv.api.media.MediaKind
 import com.kisskh.tv.api.media.MediaProgress
 import com.kisskh.tv.api.media.PlayRef
 import com.kisskh.tv.api.media.PlayToken
+import com.kisskh.tv.api.media.TmdbEpisode
 import com.kisskh.tv.api.media.TmdbJson
 import com.kisskh.tv.api.media.TmdbPaths
 import com.kisskh.tv.ui.Dest
@@ -89,6 +90,15 @@ class MediaSourcesTest {
         assertEquals(EmbedNav.ALLOW, EmbedPolicy.decide("about:blank", true))
         assertEquals(EmbedNav.ALLOW, EmbedPolicy.decide("https://player.videasy.net/movie/550", true))
         assertTrue(EmbedPolicy.blocked("ads.doubleclick.net"))
+    }
+
+    @Test
+    fun episodesAfterTodayAreNotAiredYet() {
+        val today = "2026-10-21"
+        assertTrue(TmdbEpisode(6, "a", "", null, 22, "2026-10-16").aired(today))
+        assertTrue(TmdbEpisode(6, "a", "", null, 22, "2026-10-21").aired(today))
+        assertFalse(TmdbEpisode(7, "b", "", null, null, "2026-10-23").aired(today))
+        assertTrue(TmdbEpisode(8, "c", "", null, null, null).aired(today))
     }
 
     @Test

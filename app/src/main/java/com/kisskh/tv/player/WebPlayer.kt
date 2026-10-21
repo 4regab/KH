@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -82,11 +83,11 @@ import com.kisskh.tv.api.media.EmbedPage
 import com.kisskh.tv.api.media.EmbedPolicy
 import com.kisskh.tv.ui.components.KhButton
 import com.kisskh.tv.ui.components.KhChip
-import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhFocusable
 import com.kisskh.tv.ui.theme.KhMotion
 import com.kisskh.tv.ui.theme.KhTheme
+import com.kisskh.tv.ui.theme.isTelevision
 import kotlinx.coroutines.delay
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
@@ -131,10 +132,31 @@ fun WebPlayer(
 
     var overlay by remember { mutableStateOf(true) }
     var lastKey by remember { mutableLongStateOf(SystemClock.uptimeMillis()) }
-    val backFocus = remember { FocusRequester() }
-    var backFocused by remember { mutableStateOf(false) }
+    val playFocus = remember { FocusRequester() }
+    var overlayFocused by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val audio = remember { context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager }
+    var playing by remember { mutableStateOf(false) }
+    var clock by remember { mutableStateOf<VideoClock?>(null) }
+    val bridge = remember { VideoBridge { clock = it } }
+
+    /** Play or pause: through the video itself when it can be reached, else a tap on the page. */
+    fun toggle() {
+        if (bridge.live && bridge.toggle()) return
+        web.value?.let {
+            gate.touchedAt = SystemClock.uptimeMillis()
+            it.tapCenter()
+            gate.tapped(it)
+        }
+    }
+
+    fun seekBy(seconds: Double) {
+        val c = clock ?: return
+        bridge.seekTo((c.position + seconds).coerceIn(0.0, c.duration - 1))
+    }
     val serverFocus = remember { FocusRequester() }
-    val tv = KhTheme.formFactor == FormFactor.TV
+    // Input, not layout: a tablet in landscape gets the TV layout but is still used by touch.
+    val tv = remember { isTelevision(context) }
 
     fun poke() {
         lastKey = SystemClock.uptimeMillis()
@@ -184,17 +206,28 @@ fun WebPlayer(
     // Hide the overlay when nothing has been pressed for a while. Never while choosing a server or on the error.
     LaunchedEffect(overlay, lastKey, picking, gaveUp) {
         if (!overlay || picking || gaveUp) return@LaunchedEffect
-        delay(HIDE_AFTER_MS)
+        delay(if (tv) HIDE_AFTER_MS else TOUCH_HIDE_AFTER_MS)
         overlay = false
         runCatching { web.value?.requestFocus() }
     }
-    // When the overlay appears, put focus on Back so the remote is never lost. The button is not laid out on
-    // the first frame, and a page that finishes loading takes focus, so ask again a few times.
-    LaunchedEffect(overlay, picking) {
-        if (!overlay || picking || !tv) return@LaunchedEffect
-        repeat(FOCUS_TRIES) {
+    // When the overlay appears, put focus on Play / Pause (as in the KissKH player), so OK plays the video at
+    // once. The button is not laid out on the first frame, and a page that finishes loading takes focus, so
+    // ask again a few times.
+    // While the overlay is up, focus must stay on one of its buttons: the page grabs focus when it finishes
+    // loading, which would leave the remote driving an invisible page. Pull it back to Play / Pause.
+    LaunchedEffect(overlay, picking, gaveUp) {
+        if (!overlay || picking || gaveUp || !tv) return@LaunchedEffect
+        while (true) {
             delay(FOCUS_STEP_MS)
-            if (runCatching { backFocus.requestFocus() }.isSuccess && backFocused) return@LaunchedEffect
+            if (!overlayFocused) runCatching { playFocus.requestFocus() }
+        }
+    }
+    // The video often plays inside another site's frame, which the app cannot read. Sound playing is the
+    // signal instead. ponytail: a muted video reads as paused; the button still toggles it either way.
+    LaunchedEffect(overlay) {
+        while (overlay) {
+            playing = clock?.takeIf { bridge.live }?.let { !it.paused } ?: audio.isMusicActive
+            delay(PLAY_POLL_MS)
         }
     }
     LaunchedEffect(picking) {
@@ -230,6 +263,12 @@ fun WebPlayer(
                         overlay = true
                         return@onPreviewKeyEvent true
                     }
+                    // Like the KissKH player: with the controls hidden, Left and Right skip 10 s.
+                    if (wasHidden && bridge.live && (e.key == Key.DirectionLeft || e.key == Key.DirectionRight)) {
+                        seekBy(if (e.key == Key.DirectionLeft) -SKIP_SECONDS else SKIP_SECONDS)
+                        overlay = true
+                        return@onPreviewKeyEvent true
+                    }
                 }
                 false
             },
@@ -240,20 +279,24 @@ fun WebPlayer(
                 .onPreviewKeyEvent { e ->
                     when (e.key) {
                         Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                            if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) web.value?.let { gate.touchedAt = SystemClock.uptimeMillis(); it.tapCenter(); gate.tapped(it) }
+                            if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) toggle()
                             true
                         }
                         else -> false
                     }
                 }
-                // A touch on the page shows the overlay too. The touch itself still reaches the page.
-                .pointerInput(Unit) {
+                // Every touch still reaches the page. On a touch screen only a touch in the top strip shows our
+                // bar: the rest of the page is the site's own controls (captions, seek), which must stay uncovered.
+                .pointerInput(tv) {
                     awaitPointerEventScope {
                         while (true) {
-                            awaitPointerEvent()
-                            lastKey = SystemClock.uptimeMillis()
-                            gate.touchedAt = lastKey
-                            overlay = true
+                            val event = awaitPointerEvent()
+                            val now = SystemClock.uptimeMillis()
+                            gate.touchedAt = now
+                            if (tv || event.changes.any { it.position.y < TOUCH_STRIP.toPx() }) {
+                                lastKey = now
+                                overlay = true
+                            }
                         }
                     }
                 },
@@ -289,6 +332,7 @@ fun WebPlayer(
                         ): Boolean = false
                     }
                     webViewClient = EmbedClient(gate)
+                    bridge.install(this)
                     web.value = this
                 }
             },
@@ -296,6 +340,7 @@ fun WebPlayer(
                 if (view.tag != tagged) {
                     view.tag = tagged
                     gate.begin(source.url)
+                    bridge.reset()
                     val headers = latestReferer?.let { mapOf("Referer" to it) } ?: emptyMap()
                     view.loadUrl(source.url, headers)
                 }
@@ -307,35 +352,85 @@ fun WebPlayer(
             enter = fadeIn(tween(KhMotion.RailExpandMillis, easing = KhMotion.EaseOutStrong)),
             exit = fadeOut(tween(KhMotion.RailCollapseMillis, easing = KhMotion.EaseOutStrong)),
         ) {
-            Box(Modifier.fillMaxSize()) {
-                // Near-solid where our text sits, so the page's own title and control bar never show through it.
-                Box(
-                    Modifier.fillMaxWidth().height(150.dp)
-                        .background(Brush.verticalGradient(0f to BAND, 0.6f to BAND, 1f to Color.Transparent)),
-                )
-                Box(
-                    Modifier.fillMaxWidth().height(170.dp).align(Alignment.BottomCenter)
-                        .background(Brush.verticalGradient(0f to Color.Transparent, 0.4f to BAND, 1f to BAND)),
-                )
-                TopBar(
-                    title = title,
-                    label = label,
-                    onBack = onBack,
-                    onHome = onHome,
-                    onEpisodes = onEpisodes,
-                    backFocus = backFocus,
-                    onBackFocus = { backFocused = it },
-                    onFocus = ::poke,
-                )
-                BottomBar(
-                    status = listOfNotNull(source.name, note).joinToString(" · "),
-                    hint = if (tv) "OK plays or pauses · No picture? Choose another server" else "Tap the video to play · No picture? Choose another server",
-                    showServers = sources.size > 1,
-                    onServers = { picking = true },
-                    onNext = onNext,
-                    onFocus = ::poke,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                )
+            Box(Modifier.fillMaxSize().onFocusChanged { overlayFocused = it.hasFocus }) {
+                if (!tv) {
+                    // Touch: one light bar at the top. The site's own play button, time bar and captions
+                    // menu stay visible and tappable below it.
+                    Box(
+                        Modifier.fillMaxWidth().height(TOUCH_STRIP + 24.dp)
+                            .background(Brush.verticalGradient(0f to TOUCH_SCRIM, 0.55f to TOUCH_SCRIM, 1f to Color.Transparent)),
+                    )
+                    TopBar(
+                        title = title,
+                        label = listOfNotNull(label.ifBlank { null }, source.name, note).joinToString(" · "),
+                        onBack = onBack,
+                        onHome = onHome,
+                        onEpisodes = onEpisodes,
+                        onFocus = ::poke,
+                        announce = true,
+                    ) {
+                        if (onNext != null) {
+                            RoundIcon(R.drawable.ic_player_next, R.string.player_next, onNext, ::poke)
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        if (sources.size > 1) {
+                            KhChip("Servers", onClick = { picking = true })
+                            Spacer(Modifier.width(8.dp))
+                        }
+                    }
+                } else {
+                    // Near-solid where our text sits, so the page's own title and control bar never show through it.
+                    Box(
+                        Modifier.fillMaxWidth().height(150.dp)
+                            .background(Brush.verticalGradient(0f to BAND, 0.6f to BAND, 1f to Color.Transparent)),
+                    )
+                    Box(
+                        Modifier.fillMaxWidth().height(210.dp).align(Alignment.BottomCenter)
+                            .background(Brush.verticalGradient(0f to Color.Transparent, 0.4f to BAND, 1f to BAND)),
+                    )
+                    TopBar(
+                        title = title,
+                        label = label,
+                        onBack = onBack,
+                        onHome = onHome,
+                        onEpisodes = onEpisodes,
+                        onFocus = ::poke,
+                    )
+                    if (!gaveUp) {
+                        val known = clock != null
+                        Row(
+                            Modifier.align(Alignment.Center),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(28.dp),
+                        ) {
+                            if (known) RoundIcon(R.drawable.ic_player_rew, R.string.player_rewind, { seekBy(-SKIP_SECONDS); poke() }, ::poke, big = true)
+                            PlayPause(
+                                playing = playing,
+                                onClick = {
+                                    toggle()
+                                    poke()
+                                },
+                                onFocus = ::poke,
+                                modifier = Modifier.focusRequester(playFocus),
+                            )
+                            if (known) RoundIcon(R.drawable.ic_player_ffwd, R.string.player_forward, { seekBy(SKIP_SECONDS); poke() }, ::poke, big = true)
+                        }
+                    }
+                    BottomBar(
+                        status = listOfNotNull(source.name, note).joinToString(" · "),
+                        clock = clock?.takeIf { !gaveUp },
+                        onSeek = { bridge.seekTo(it); poke() },
+                        hint = listOfNotNull(
+                            if (clock != null) "OK plays or pauses · Left and Right skip 10 s" else "OK plays or pauses",
+                            "No picture? Choose another server".takeIf { sources.size > 1 },
+                        ).joinToString(" · "),
+                        showServers = sources.size > 1,
+                        onServers = { picking = true },
+                        onNext = onNext,
+                        onFocus = ::poke,
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                }
             }
         }
 
@@ -373,27 +468,31 @@ private fun TopBar(
     onBack: () -> Unit,
     onHome: () -> Unit,
     onEpisodes: (() -> Unit)?,
-    backFocus: FocusRequester,
-    onBackFocus: (Boolean) -> Unit,
     onFocus: () -> Unit,
+    /** Read the label out when it changes (touch screens show the server status there). */
+    announce: Boolean = false,
+    /** Buttons placed before Home. */
+    extra: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
         Modifier.fillMaxWidth().padding(start = 36.dp, top = 28.dp, end = 36.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RoundIcon(
-            R.drawable.ic_player_back,
-            R.string.player_back,
-            onBack,
-            onFocus,
-            Modifier.focusRequester(backFocus).onFocusChanged { onBackFocus(it.isFocused) },
-        )
+        RoundIcon(R.drawable.ic_player_back, R.string.player_back, onBack, onFocus)
         Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
             Text(title, color = KhColors.TextPrimary, fontSize = 22.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (label.isNotBlank()) {
-                Text(label, color = KhColors.TextSecondary, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    label,
+                    color = KhColors.TextSecondary,
+                    fontSize = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = if (announce) Modifier.semantics { liveRegion = LiveRegionMode.Polite } else Modifier,
+                )
             }
         }
+        extra()
         RoundIcon(R.drawable.ic_player_home, R.string.player_home, onHome, onFocus)
         if (onEpisodes != null) {
             Spacer(Modifier.width(4.dp))
@@ -405,6 +504,8 @@ private fun TopBar(
 @Composable
 private fun BottomBar(
     status: String,
+    clock: VideoClock?,
+    onSeek: (Double) -> Unit,
     hint: String,
     showServers: Boolean,
     onServers: () -> Unit,
@@ -412,28 +513,60 @@ private fun BottomBar(
     onFocus: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier.fillMaxWidth().padding(start = 36.dp, end = 28.dp, bottom = 22.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            // A polite live region: a screen reader says it when a server fails and the next one starts.
-            Text(
-                status,
-                color = KhColors.TextPrimary,
-                fontSize = 16.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+    Column(modifier.fillMaxWidth().padding(start = 36.dp, end = 28.dp, bottom = 22.dp)) {
+      if (clock != null) {
+          SeekBar(clock = clock, onSeek = onSeek, onFocus = onFocus, modifier = Modifier.padding(end = 8.dp, bottom = 10.dp))
+      }
+      Row(
+          Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically,
+      ) {
+          Column(Modifier.weight(1f)) {
+              // A polite live region: a screen reader says it when a server fails and the next one starts.
+              Text(
+                  status,
+                  color = KhColors.TextPrimary,
+                  fontSize = 16.sp,
+                  maxLines = 2,
+                  overflow = TextOverflow.Ellipsis,
+                  modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+              )
+              Text(hint, color = KhColors.TextSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+          }
+          if (onNext != null) {
+              RoundIcon(R.drawable.ic_player_next, R.string.player_next, onNext, onFocus)
+              Spacer(Modifier.width(8.dp))
+          }
+          if (showServers) {
+              KhButton("Servers", onClick = onServers, modifier = Modifier.onFocusChanged { if (it.isFocused) onFocus() })
+          }
+      }
+    }
+}
+
+/** The 96 dp Play / Pause in the middle, the same size and place as the KissKH player's. OK on it taps the page. */
+@Composable
+private fun PlayPause(playing: Boolean, onClick: () -> Unit, onFocus: () -> Unit, modifier: Modifier = Modifier) {
+    val label = androidx.compose.ui.res.stringResource(if (playing) R.string.player_pause else R.string.player_play)
+    KhFocusable(
+        onClick = onClick,
+        modifier = modifier
+            .size(96.dp)
+            .onFocusChanged { if (it.isFocused) onFocus() }
+            .semantics { contentDescription = label },
+        shape = CircleShape,
+        scaleAndLift = false,
+    ) { focused ->
+        Box(
+            Modifier.fillMaxSize().background(if (focused) Color(0x40FFFFFF) else Color(0x8C000000), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(if (playing) R.drawable.ic_player_pause else R.drawable.ic_player_play),
+                contentDescription = null,
+                tint = KhColors.TextPrimary,
+                modifier = Modifier.size(56.dp),
             )
-            Text(hint, color = KhColors.TextSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        if (onNext != null) {
-            RoundIcon(R.drawable.ic_player_next, R.string.player_next, onNext, onFocus)
-            Spacer(Modifier.width(8.dp))
-        }
-        if (showServers) {
-            KhButton("Servers", onClick = onServers, modifier = Modifier.onFocusChanged { if (it.isFocused) onFocus() })
         }
     }
 }
@@ -446,12 +579,13 @@ private fun RoundIcon(
     onClick: () -> Unit,
     onFocus: () -> Unit,
     modifier: Modifier = Modifier,
+    big: Boolean = false,
 ) {
     val label = androidx.compose.ui.res.stringResource(description)
     KhFocusable(
         onClick = onClick,
         modifier = modifier
-            .size(48.dp)
+            .size(if (big) 72.dp else 48.dp)
             .onFocusChanged { if (it.isFocused) onFocus() }
             .semantics { contentDescription = label },
         shape = CircleShape,
@@ -461,7 +595,7 @@ private fun RoundIcon(
             Modifier.fillMaxSize().background(if (focused) Color(0x33FFFFFF) else Color.Transparent, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(icon), contentDescription = null, tint = KhColors.TextPrimary, modifier = Modifier.size(28.dp))
+            Icon(painterResource(icon), contentDescription = null, tint = KhColors.TextPrimary, modifier = Modifier.size(if (big) 40.dp else 28.dp))
         }
     }
 }
@@ -647,12 +781,23 @@ private const val TAP_WINDOW_MS = 3_000L
 private const val SAME_SOURCE_RETRIES = 2
 private const val FOCUS_TRIES = 6
 private const val FOCUS_STEP_MS = 120L
+private const val PLAY_POLL_MS = 500L
+private const val SKIP_SECONDS = 10.0
 
 /** The overlay's top and bottom bands: the KH background at 95%. */
 private val BAND = Color(0xF209090B)
 
 /** Same as the KissKH player's controller timeout. */
 private const val HIDE_AFTER_MS = 4_000L
+
+/** Touch screens: the top bar goes sooner, since the page under it has its own controls. */
+private const val TOUCH_HIDE_AFTER_MS = 3_000L
+
+/** Touch screens: a touch this close to the top shows our bar. It is the bar's own height. */
+private val TOUCH_STRIP = 96.dp
+
+/** Touch screens: the top bar's scrim, light enough to see the video through. */
+private val TOUCH_SCRIM = Color(0x99000000)
 private val CHECK_DELAYS_MS = listOf(4_000L, 11_000L)
 private const val STALL_AFTER_LOAD_MS = 30_000L
 private const val STALL_AFTER_TAP_MS = 20_000L

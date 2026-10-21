@@ -12,8 +12,8 @@ android {
         applicationId = "com.kisskh.tv"
         minSdk = 23
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     buildTypes {
@@ -47,6 +47,9 @@ dependencies {
     implementation("androidx.paging:paging-compose:3.3.5")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // Reaches the video inside embed players' frames, for the seek bar.
+    implementation("androidx.webkit:webkit:1.12.1")
 
     // Media3 ExoPlayer — HLS playback, the YouTube-grade player
     implementation("androidx.media3:media3-exoplayer:1.5.1")

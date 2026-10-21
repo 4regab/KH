@@ -83,7 +83,8 @@ fun rememberNextEpisode(vm: AppViewModel, kind: MediaKind, tmdbId: Int, season: 
     val state by remember(tmdbId, season) { vm.media.season(tmdbId, season) }.collectAsStateWithLifecycle()
     val episodes = (state as? UiState.Success)?.data ?: return null
     val index = episodes.indexOfFirst { it.number == episode }
-    return if (index >= 0) episodes.getOrNull(index + 1)?.number else null
+    // An episode that has not aired yet is not offered: no server has it.
+    return if (index >= 0) episodes.getOrNull(index + 1)?.takeIf { it.aired() }?.number else null
 }
 
 fun kindFor(row: String, title: TmdbTitle): MediaKind = when {

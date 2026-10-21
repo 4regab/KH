@@ -106,7 +106,15 @@ data class TmdbEpisode(
     val overview: String,
     val still: String?,
     val runtime: Int?,
-)
+    /** yyyy-MM-dd, or null when TMDB has no date. */
+    val airDate: String? = null,
+) {
+    /**
+     * False for an episode whose air date is after [today] (yyyy-MM-dd): no server has it yet.
+     * ponytail: a missing date counts as aired, so a gap in TMDB's data never blocks a real episode.
+     */
+    fun aired(today: String = TmdbPaths.todayUtc()): Boolean = airDate == null || airDate <= today
+}
 
 data class TmdbTitleDetails(
     val title: TmdbTitle,
@@ -406,8 +414,10 @@ object TmdbJson {
             var overview = ""
             var still: String? = null
             var runtime: Int? = null
+            var airDate: String? = null
             obj {
                 when (nextName()) {
+                    "air_date" -> airDate = stringOrNull()?.takeIf { it.length == 10 }
                     "episode_number" -> number = intOrNull()
                     "name" -> name = stringOrNull().orEmpty()
                     "overview" -> overview = stringOrNull().orEmpty()
@@ -423,6 +433,7 @@ object TmdbJson {
                 overview = overview,
                 still = TmdbPaths.image(still, "w300"),
                 runtime = runtime?.takeIf { it > 0 },
+                airDate = airDate,
             )
         }
         endArray()
