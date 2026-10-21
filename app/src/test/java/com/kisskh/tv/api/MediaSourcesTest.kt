@@ -3,6 +3,7 @@ package com.kisskh.tv.api
 import com.kisskh.tv.api.media.CineJoyToken
 import com.kisskh.tv.api.media.EmbedFailover
 import com.kisskh.tv.api.media.EmbedNav
+import com.kisskh.tv.api.media.EmbedPage
 import com.kisskh.tv.api.media.EmbedPolicy
 import com.kisskh.tv.api.media.EmbedServers
 import com.kisskh.tv.api.media.FebParse
@@ -67,6 +68,21 @@ class MediaSourcesTest {
     }
 
     @Test
+    fun deadPagesFailOverButPlayersAndRealSitesDoNot() {
+        // Seen on a Chromecast with Google TV for movie 550.
+        assertTrue(EmbedPage.unavailable("404 Oops! Page not found Return to Home", players = 0))
+        assertTrue(EmbedPage.unavailable("Origin is unreachable Error code 523", players = 0))
+        assertFalse(EmbedPage.unavailable("FIGHT CLUB 1999", players = 1))
+        assertFalse(EmbedPage.unavailable("404 Not found", players = 1))
+        assertFalse(EmbedPage.unavailable("Fight Club " + "x".repeat(700) + " not found", players = 0))
+        assertTrue(EmbedPage.sentHome("https://airflix1.com/movie/550", "https://airflix1.com/"))
+        assertFalse(EmbedPage.sentHome("https://player.videasy.net/movie/550", "https://player.videasy.to/movie/550"))
+        assertFalse(EmbedPage.sentHome("https://vsembed.ru/embed/movie/550", "about:blank"))
+        assertTrue(EmbedPage.blanked("about:blank"))
+        assertEquals("server not found", EmbedPage.reason("net::ERR_NAME_NOT_RESOLVED"))
+    }
+
+    @Test
     fun adHostsAreBlockedAndOrdinaryPagesAreAllowed() {
         assertEquals(EmbedNav.FAIL, EmbedPolicy.decide("https://dz.detergesateens.com/r8", true))
         assertEquals(EmbedNav.BLOCK, EmbedPolicy.decide("https://dz.detergesateens.com/r8", false))
@@ -74,6 +90,15 @@ class MediaSourcesTest {
         assertEquals(EmbedNav.ALLOW, EmbedPolicy.decide("about:blank", true))
         assertEquals(EmbedNav.ALLOW, EmbedPolicy.decide("https://player.videasy.net/movie/550", true))
         assertTrue(EmbedPolicy.blocked("ads.doubleclick.net"))
+    }
+
+    @Test
+    fun aTapThatLeavesForAnotherSiteIsAHijack() {
+        val page = "https://vidsrc.cc/v2/embed/movie/550"
+        assertTrue(EmbedPolicy.hijack(page, "https://ad.example.com/landing", afterTap = true, redirect = false))
+        assertFalse(EmbedPolicy.hijack(page, "https://player.vidsrc.cc/next", afterTap = true, redirect = false))
+        assertFalse(EmbedPolicy.hijack(page, "https://ad.example.com/landing", afterTap = false, redirect = false))
+        assertFalse(EmbedPolicy.hijack(page, "https://mirror.example.net/movie/550", afterTap = true, redirect = true))
     }
 
     @Test
@@ -238,6 +263,20 @@ class MediaSourcesTest {
         token.set("  ")
         assertEquals("", token.get())
         assertFalse(tokenPrefs.all.keys.any { it.startsWith("ep_") })
+    }
+
+    @Test
+    fun cineJoyWatchPageUrls() {
+        assertEquals("https://cinejoy.pk/watch/movie/550", com.kisskh.tv.api.media.CineJoyWeb.watchUrl(true, 550, 1, 1))
+        assertEquals("https://cinejoy.pk/watch/tv/1396/1/2", com.kisskh.tv.api.media.CineJoyWeb.watchUrl(false, 1396, 1, 2))
+        assertEquals("https://cinejoy.pk/watch/tv/1396/1/1", com.kisskh.tv.api.media.CineJoyWeb.watchUrl(false, 1396, 0, 0))
+    }
+
+    @Test
+    fun appOpensOnCineWaveAndListsItFirst() {
+        assertEquals(Library.CINEWAVE, com.kisskh.tv.api.media.DEFAULT_LIBRARY)
+        assertEquals(Library.CINEWAVE, com.kisskh.tv.api.media.LIBRARY_ORDER.first())
+        assertEquals(Library.entries.toSet(), com.kisskh.tv.api.media.LIBRARY_ORDER.toSet())
     }
 
     @Test

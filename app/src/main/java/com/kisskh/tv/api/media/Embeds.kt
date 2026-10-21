@@ -180,6 +180,44 @@ object EmbedFailover {
 }
 
 /**
+ * Pages that load but have nothing to play. HTTP and network errors are caught by the WebView; these
+ * are the ones it reports as a success: an error page drawn by the site, or a redirect to its home page.
+ */
+object EmbedPage {
+    private val dead = Regex("\\b404\\b|not found|unreachable|error code|access denied|forbidden|bad gateway|unavailable", RegexOption.IGNORE_CASE)
+
+    /** An error page is short. A real site with a player on it is not. */
+    private const val SHORT_TEXT = 600
+
+    /** [text] is what the page shows, [players] how many video, iframe and canvas elements it has. */
+    fun unavailable(text: String, players: Int): Boolean =
+        players == 0 && text.length < SHORT_TEXT && dead.containsMatchIn(text)
+
+    /** True when [asked] pointed at a title but [landed] is a bare http(s) site root. */
+    fun sentHome(asked: String, landed: String): Boolean {
+        if (!web(landed)) return false
+        return path(asked).isNotEmpty() && path(landed).isEmpty()
+    }
+
+    /** True when the page replaced itself with about:blank (some players do this when they detect a debugger). */
+    fun blanked(landed: String): Boolean = landed.startsWith("about:blank")
+
+    private fun web(url: String): Boolean = url.startsWith("http://") || url.startsWith("https://")
+
+    private fun path(url: String): String =
+        runCatching { URI(url).path.orEmpty().trim('/') }.getOrDefault("")
+
+    /** A short reason for the bar, from the WebView's own error text (for example "net::ERR_NAME_NOT_RESOLVED"). */
+    fun reason(error: String): String = when {
+        "NAME_NOT_RESOLVED" in error -> "server not found"
+        "CONNECTION" in error || "ADDRESS_UNREACHABLE" in error -> "can't connect"
+        "TIMED_OUT" in error -> "timed out"
+        "SSL" in error || "CERT" in error -> "security error"
+        else -> "failed to load"
+    }
+}
+
+/**
  * What to do with a navigation inside the embed player.
  * Popups and non-http schemes are blocked. A known ad host on the main frame fails over.
  */
@@ -216,6 +254,29 @@ object EmbedPolicy {
     fun blocked(host: String): Boolean {
         val h = host.lowercase().trim('.')
         return blocked.any { h == it || h.endsWith(".$it") }
+    }
+
+    /**
+     * True when a tap moved the whole page to another site. Embed players hide ads under their play
+     * button: the tap that should start the video opens an ad page instead (sometimes an adult one).
+     * Server redirects, and moves within the same site (www.a.com to cdn.a.com), are not counted.
+     */
+    fun hijack(currentUrl: String?, targetUrl: String, afterTap: Boolean, redirect: Boolean): Boolean {
+        if (!afterTap || redirect) return false
+        val from = site(currentUrl) ?: return false
+        val to = site(targetUrl) ?: return false
+        return from != to
+    }
+
+    /** The last two labels of the host: `player.vidsrc.cc` is `vidsrc.cc`. */
+    private fun site(url: String?): String? {
+        if (url == null) return null
+        val host = try {
+            URI(url).host
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return host.lowercase().trim('.').split('.').takeLast(2).joinToString(".")
     }
 
     fun decide(url: String, mainFrame: Boolean): EmbedNav {

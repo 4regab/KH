@@ -10,6 +10,19 @@ enum class Library(val label: String, val key: String) {
     NEXUS("Anime Nexus", "nx"),
 }
 
+/** The source the app opens on. */
+val DEFAULT_LIBRARY = Library.CINEWAVE
+
+/** Source switch order: the default first, then the rest. */
+val LIBRARY_ORDER = listOf(
+    Library.CINEWAVE,
+    Library.CINEJOY,
+    Library.REELIX,
+    Library.ANISUGE,
+    Library.NEXUS,
+    Library.KISSKH,
+)
+
 /** Movie, series, or CineWave's anime list (anime is still a TMDB TV record). */
 enum class MediaKind {
     MOVIE,

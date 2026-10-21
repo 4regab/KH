@@ -28,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -46,16 +48,11 @@ import com.kisskh.tv.ui.components.FocusSaver
 import com.kisskh.tv.ui.components.KhScrollDefaults
 import com.kisskh.tv.ui.components.LocalFocusSaver
 import com.kisskh.tv.ui.components.rememberIsTelevision
-import com.kisskh.tv.ui.detail.DetailScreen
-import com.kisskh.tv.ui.home.HomeScreen
 import com.kisskh.tv.ui.labelFor
 import com.kisskh.tv.ui.tabs
 import com.kisskh.tv.ui.media.MediaBrowseScreen
 import com.kisskh.tv.ui.media.MediaDetailScreen
-import com.kisskh.tv.ui.media.MediaHomeScreen
-import com.kisskh.tv.ui.media.MediaSearchScreen
 import com.kisskh.tv.ui.media.TokenScreen
-import com.kisskh.tv.ui.search.SearchScreen
 import com.kisskh.tv.player.EmbedPlayer
 import com.kisskh.tv.player.StreamPlayerScreen
 import com.kisskh.tv.player.WatchScreen
@@ -108,9 +105,17 @@ fun KhApp(
         }
     }
 
+    // Like Netflix on TV: Back on a top screen opens the menu first; Back on the open menu there exits.
+    val railFocus = remember { FocusRequester() }
     BackHandler {
-        if (showRail && railFocused && enterContent()) return@BackHandler
-        if (!vm.onBack()) onExit()
+        val root = nav.stack.size <= 1
+        if (showRail && railFocused) {
+            if (root) onExit() else if (!enterContent() && !vm.onBack()) onExit()
+            return@BackHandler
+        }
+        if (vm.onBack()) return@BackHandler
+        if (showRail && runCatching { railFocus.requestFocus() }.isSuccess) return@BackHandler
+        onExit()
     }
 
     KhScrollDefaults {
@@ -121,6 +126,7 @@ fun KhApp(
                     nav = nav,
                     showRail = showRail,
                     railFocused = railFocused,
+                    railFocus = railFocus,
                     onRailFocus = { railFocused = it },
                     onEnterContent = enterContent,
                     onSelectTab = { tab ->
@@ -173,6 +179,7 @@ private fun TvScaffold(
     nav: NavState,
     showRail: Boolean,
     railFocused: Boolean,
+    railFocus: FocusRequester,
     onRailFocus: (Boolean) -> Unit,
     onEnterContent: () -> Boolean,
     onSelectTab: (RootTab) -> Unit,
@@ -184,6 +191,8 @@ private fun TvScaffold(
         animationSpec = tween(KhMotion.RailExpandMillis, easing = KhMotion.EaseOutStrong),
         label = "railScrim",
     )
+    var picking by remember { mutableStateOf(false) }
+    LaunchedEffect(showRail) { if (!showRail) picking = false }
     Box(Modifier.fillMaxSize().background(KhColors.Background)) {
         ScreenBody(
             vm = vm,
@@ -213,10 +222,23 @@ private fun TvScaffold(
                 library = nav.library,
                 labelOf = { it.labelFor(nav.library) },
                 onSelect = onSelectTab,
-                onSelectLibrary = onSelectLibrary,
+                onOpenSources = { picking = true },
                 onFocusChanged = onRailFocus,
                 onEnterContent = onEnterContent,
-                modifier = Modifier.align(Alignment.CenterStart),
+                modifier = Modifier.align(Alignment.CenterStart).focusRequester(railFocus),
+            )
+        }
+        if (picking) {
+            SourcePicker(
+                current = nav.library,
+                onPick = { library ->
+                    picking = false
+                    if (library != nav.library) onSelectLibrary(library) else onEnterContent()
+                },
+                onDismiss = {
+                    picking = false
+                    onEnterContent()
+                },
             )
         }
     }

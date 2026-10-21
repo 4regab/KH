@@ -38,6 +38,8 @@ data class MediaRow(
     val items: List<TmdbTitle>,
     /** Set for Continue. Same order as [items]. */
     val resumes: List<MediaEntry>? = null,
+    /** Built from saved progress (Continue, Recent), not from TMDB. */
+    val local: Boolean = false,
 )
 
 data class MediaHome(val rows: List<MediaRow>, val failed: List<String>)
@@ -62,6 +64,8 @@ data class StreamRequest(
 )
 
 data class StreamReady(
+    /** The [StreamRequest.key] this stream was resolved for, so a screen never plays another episode's stream. */
+    val key: String,
     val url: String,
     val quality: String,
     val subs: List<SubtitleFile>,
@@ -108,7 +112,7 @@ class MediaSession(
     fun refreshLocal(library: Library) {
         val flow = homeFlows[library] ?: return
         val success = flow.value as? UiState.Success ?: return
-        val remote = success.data.rows.filter { it.resumes == null }
+        val remote = success.data.rows.filterNot { it.local }
         flow.value = UiState.Success(success.data.copy(rows = localRows(library) + remote))
     }
 
@@ -145,11 +149,12 @@ class MediaSession(
     }
 
     private fun localRows(library: Library): List<MediaRow> {
-        val cont = progress.continuing(library.key).take(20)
-        val recent = progress.recent(library.key).take(20)
+        // One tile per title. Entries are newest first, so the latest episode is the one kept.
+        val cont = progress.continuing(library.key).distinctBy { it.kind to it.id }.take(20)
+        val recent = progress.recent(library.key).distinctBy { it.kind to it.id }.take(20)
         return listOfNotNull(
-            cont.takeIf { it.isNotEmpty() }?.let { MediaRow("Continue", it.map { entry -> entry.asTitle() }, it) },
-            recent.takeIf { it.isNotEmpty() }?.let { MediaRow("Recent", it.map { entry -> entry.asTitle() }) },
+            cont.takeIf { it.isNotEmpty() }?.let { MediaRow("Continue", it.map { entry -> entry.asTitle() }, it, local = true) },
+            recent.takeIf { it.isNotEmpty() }?.let { MediaRow("Recent", it.map { entry -> entry.asTitle() }, local = true) },
         )
     }
 
@@ -371,6 +376,7 @@ class MediaSession(
             )
         return when (val parsed = febbox.fetch(url)) {
             is FebParse.Ready -> StreamReady(
+                key = request.key,
                 url = parsed.url,
                 quality = parsed.quality,
                 subs = parsed.subtitles.map { SubtitleFile(it.url, it.label, it.lang) },
