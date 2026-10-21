@@ -233,6 +233,7 @@ fun VideoPlayer(
  * Phone touch, like YouTube and Netflix: one tap shows or hides the controls, a double tap on the left
  * or right half skips back or forward 10 s. The controls' own buttons still get their taps first.
  */
+@androidx.annotation.OptIn(UnstableApi::class)
 @SuppressLint("ClickableViewAccessibility")
 private fun PlayerView.enableTouchGestures(player: Player) {
     // TalkBack's click goes through performClick, which then also hides the controls.
