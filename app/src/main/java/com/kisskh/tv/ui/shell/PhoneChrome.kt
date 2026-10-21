@@ -2,6 +2,8 @@ package com.kisskh.tv.ui.shell
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -96,6 +98,7 @@ fun SourceBar(
             .fillMaxWidth()
             .height(SourceBarHeight)
             .background(KhColors.Background)
+            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -105,7 +108,6 @@ fun SourceBar(
             KhFocusable(
                 onClick = { onSelect(source) },
                 modifier = Modifier
-                    .weight(1f)
                     .height(32.dp)
                     .semantics {
                         contentDescription = "Source ${source.label}"
@@ -126,6 +128,7 @@ fun SourceBar(
                         color = if (on) KhColors.OnLight else KhColors.TextSecondary,
                         fontSize = 13.sp,
                         maxLines = 1,
+                        modifier = Modifier.padding(horizontal = 10.dp),
                     )
                 }
             }

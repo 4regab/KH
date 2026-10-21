@@ -173,6 +173,7 @@ class MediaSession(
             RowSpec("Popular movies") { tmdb.discover("movie", false, 1, TmdbPaths.todayUtc()).items },
             RowSpec("On the air") { tmdb.onTheAir().items },
         )
+        Library.REELIX, Library.ANISUGE, Library.NEXUS -> emptyList()
     }
 
     // ---------------------------------------------------------------- browse
@@ -371,7 +372,7 @@ class MediaSession(
         progress.remember(request.key, request.title, request.poster)
         val url = Febbox.requestUrl(request.movie, request.id, request.season, request.episode, tokens.get())
             ?: throw TokenRequired(
-                "CineJoy needs a Febbox token before it can play. Paste the token from the site, then try again.",
+                "Febbox needs your own token: sign in at febbox.com, copy the value of its \"ui\" cookie, and paste it here.",
             )
         return when (val parsed = febbox.fetch(url)) {
             is FebParse.Ready -> StreamReady(

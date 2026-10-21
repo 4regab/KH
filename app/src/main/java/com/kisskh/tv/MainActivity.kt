@@ -72,6 +72,11 @@ private fun PlayerHost(vm: AppViewModel, dest: Dest.Player) {
         val i = ordered.indexOfFirst { it.id == dest.episodeId }
         if (drama != null && i >= 0) ordered.getOrNull(i + 1)?.let { drama to it } else null
     }
+    val previous = remember(drama, dest.episodeId) {
+        val ordered = drama?.orderedEpisodes().orEmpty()
+        val i = ordered.indexOfFirst { it.id == dest.episodeId }
+        if (drama != null && i > 0) ordered.getOrNull(i - 1)?.let { drama to it } else null
+    }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (val s = state) {
             UiState.Loading -> {
@@ -102,6 +107,7 @@ private fun PlayerHost(vm: AppViewModel, dest: Dest.Player) {
                     onHome = { vm.goHome() },
                     onEpisodes = { showEpisodes = true },
                     onNext = next?.let { (d, ep) -> { vm.switchEpisode(d.playerDest(ep)) } },
+                    onPrev = previous?.let { (d, ep) -> { vm.switchEpisode(d.playerDest(ep)) } },
                     hideControlsOnBack = failed == null,
                 )
                 val message = failed

@@ -24,8 +24,9 @@ fun RootTab.labelFor(library: Library): String =
 /** Tabs for one source, in the order they appear. */
 fun Library.tabs(): List<RootTab> = when (this) {
     Library.KISSKH -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.SERIES, RootTab.MOVIES, RootTab.COUNTRIES)
-    Library.CINEWAVE -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES, RootTab.ANIME)
+    Library.CINEWAVE, Library.REELIX -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES, RootTab.ANIME)
     Library.CINEJOY -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES)
+    Library.ANISUGE, Library.NEXUS -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.ANIME)
 }
 
 /** Helpers for the opaque `focusKey` strings that screens store in a [Dest]. */
@@ -245,6 +246,70 @@ sealed interface Dest {
             get() = if (kind.isMovie) "Movie" else episodeLabel(season, episode, episodeName)
     }
 
+    /**
+     * A grid shared by every source. KissKH movies and series still use [Movies] and [Series]
+     * so their filters stay parked; this is the grid for every other tab.
+     */
+    data class Shelf(
+        val kind: MediaKind,
+        override val focusKey: String? = null,
+        override val scrollIndex: Int = 0,
+    ) : Restorable {
+        override val tab: RootTab
+            get() = when (kind) {
+                MediaKind.MOVIE -> RootTab.MOVIES
+                MediaKind.TV -> RootTab.SERIES
+                MediaKind.ANIME -> RootTab.ANIME
+            }
+
+        override fun withFocus(focusKey: String?, scrollIndex: Int?) =
+            copy(focusKey = focusKey, scrollIndex = scrollIndex ?: this.scrollIndex)
+    }
+
+    /** A title page. [id] is the source's own id. [slug] is set when the page URL is not the id. */
+    data class TitlePage(
+        val id: String,
+        val kind: MediaKind,
+        val slug: String = "",
+        val name: String = "",
+        val poster: String? = null,
+        override val focusKey: String? = null,
+        override val scrollIndex: Int = 0,
+    ) : Restorable {
+        override fun withFocus(focusKey: String?, scrollIndex: Int?) =
+            copy(focusKey = focusKey, scrollIndex = scrollIndex ?: this.scrollIndex)
+    }
+
+    /**
+     * The shared player for every source except KissKH, which keeps [Player] and the `ep_` resume keys.
+     * The screen sniffs [the page] for an HLS or MP4 stream and falls back to that page.
+     */
+    data class Watch(
+        val source: String,
+        val titleId: String,
+        val kind: MediaKind,
+        val slug: String = "",
+        val season: Int = 1,
+        val episode: Int = 1,
+        val episodeId: String = "",
+        val episodeSlug: String = "",
+        val episodeToken: String = "",
+        val episodeName: String = "",
+        val audio: String = "",
+        val title: String = "",
+        val poster: String? = null,
+    ) : Dest {
+        val progressKey: String
+            get() = if (kind == MediaKind.MOVIE) com.kisskh.tv.api.media.MediaKeys.movie(source, titleId)
+            else com.kisskh.tv.api.media.MediaKeys.episode(source, titleId, season.coerceAtLeast(1), episode.coerceAtLeast(1))
+
+        val label: String
+            get() = if (kind == MediaKind.MOVIE) "Movie" else {
+                val head = "S$season E$episode"
+                if (episodeName.isBlank()) head else "$head · $episodeName"
+            }
+    }
+
     /** Where the CineJoy Febbox token is pasted. */
     data class Token(
         override val focusKey: String? = null,
@@ -319,12 +384,12 @@ data class NavState(
             RootTab.COUNTRIES -> Dest.Countries()
             RootTab.ANIME -> Dest.Home()
         }
-        Library.CINEWAVE, Library.CINEJOY -> when (tab) {
+        Library.CINEWAVE, Library.CINEJOY, Library.REELIX, Library.ANISUGE, Library.NEXUS -> when (tab) {
             RootTab.HOME -> Dest.Home()
             RootTab.SEARCH -> Dest.Search()
-            RootTab.MOVIES -> Dest.MediaBrowse(MediaKind.MOVIE)
-            RootTab.SERIES -> Dest.MediaBrowse(MediaKind.TV)
-            RootTab.ANIME -> Dest.MediaBrowse(MediaKind.ANIME)
+            RootTab.MOVIES -> Dest.Shelf(MediaKind.MOVIE)
+            RootTab.SERIES -> Dest.Shelf(MediaKind.TV)
+            RootTab.ANIME -> Dest.Shelf(MediaKind.ANIME)
             RootTab.COUNTRIES -> Dest.Home()
         }
     }

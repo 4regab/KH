@@ -48,18 +48,18 @@ import com.kisskh.tv.ui.components.FocusSaver
 import com.kisskh.tv.ui.components.KhScrollDefaults
 import com.kisskh.tv.ui.components.LocalFocusSaver
 import com.kisskh.tv.ui.components.rememberIsTelevision
-import com.kisskh.tv.ui.detail.DetailScreen
-import com.kisskh.tv.ui.home.HomeScreen
 import com.kisskh.tv.ui.labelFor
 import com.kisskh.tv.ui.tabs
 import com.kisskh.tv.ui.media.MediaBrowseScreen
 import com.kisskh.tv.ui.media.MediaDetailScreen
-import com.kisskh.tv.ui.media.MediaHomeScreen
-import com.kisskh.tv.ui.media.MediaSearchScreen
 import com.kisskh.tv.ui.media.TokenScreen
-import com.kisskh.tv.ui.search.SearchScreen
 import com.kisskh.tv.player.EmbedPlayer
 import com.kisskh.tv.player.StreamPlayerScreen
+import com.kisskh.tv.player.WatchScreen
+import com.kisskh.tv.ui.shelf.ShelfBrowse
+import com.kisskh.tv.ui.shelf.ShelfDetail
+import com.kisskh.tv.ui.shelf.ShelfHome
+import com.kisskh.tv.ui.shelf.ShelfSearch
 import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhMotion
@@ -83,7 +83,7 @@ fun KhApp(
     val nav by vm.nav.collectAsStateWithLifecycle()
     val current = nav.current
     val tv = KhTheme.formFactor == FormFactor.TV
-    val playing = current is Dest.Player || current is Dest.EmbedPlayer || current is Dest.StreamPlayer
+    val playing = current is Dest.Player || current is Dest.EmbedPlayer || current is Dest.StreamPlayer || current is Dest.Watch
     val showRail = tv && !playing
     val focusManager = LocalFocusManager.current
     val saver = remember { FocusSaver() }
@@ -253,13 +253,15 @@ private fun PhoneScaffold(
     player: @Composable (Dest.Player) -> Unit,
 ) {
     val current = nav.current
-    val showNav = current !is Dest.Player && current !is Dest.Detail &&
-        current !is Dest.EmbedPlayer && current !is Dest.StreamPlayer && current !is Dest.MediaDetail
-    val padStatus = current !is Dest.Home && current !is Dest.Detail && current !is Dest.Player &&
-        current !is Dest.EmbedPlayer && current !is Dest.StreamPlayer
+    val showNav = current !is Dest.Player && current !is Dest.Detail && current !is Dest.TitlePage &&
+        current !is Dest.EmbedPlayer && current !is Dest.StreamPlayer && current !is Dest.MediaDetail &&
+        current !is Dest.Watch
+    val padStatus = current !is Dest.Home && current !is Dest.Detail && current !is Dest.TitlePage &&
+        current !is Dest.Player && current !is Dest.EmbedPlayer && current !is Dest.StreamPlayer &&
+        current !is Dest.Watch
     val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottom = when {
-        !showNav && (current is Dest.Player || current is Dest.EmbedPlayer || current is Dest.StreamPlayer) -> 0.dp
+        !showNav && (current is Dest.Player || current is Dest.EmbedPlayer || current is Dest.StreamPlayer || current is Dest.Watch) -> 0.dp
         showNav -> PhoneNavHeight + SourceBarHeight + navInset
         else -> navInset
     }
@@ -297,16 +299,21 @@ private fun ScreenBody(
     key(screenKey(nav)) {
         Box(modifier) {
             when (val d = nav.current) {
-                is Dest.Home -> if (nav.library == Library.KISSKH) HomeScreen(vm, d) else MediaHomeScreen(vm, nav.library, d)
-                is Dest.Search -> if (nav.library == Library.KISSKH) SearchScreen(vm, d) else MediaSearchScreen(vm, nav.library, d)
+                is Dest.Home -> ShelfHome(vm, nav.library)
+                is Dest.Search -> ShelfSearch(vm, nav.library)
+                is Dest.Movies -> ShelfBrowse(vm, nav.library, com.kisskh.tv.api.media.MediaKind.MOVIE)
+                is Dest.Series -> ShelfBrowse(vm, nav.library, com.kisskh.tv.api.media.MediaKind.TV)
+                is Dest.Shelf -> ShelfBrowse(vm, nav.library, d.kind)
                 is Dest.Catalog -> CatalogScreen(vm, d)
                 is Dest.Countries -> CountriesScreen(vm, d)
-                is Dest.Detail -> DetailScreen(vm, d)
+                is Dest.Detail -> ShelfDetail(vm, nav.library, Dest.TitlePage(d.dramaId.toString(), com.kisskh.tv.api.media.MediaKind.TV))
+                is Dest.TitlePage -> ShelfDetail(vm, nav.library, d)
                 is Dest.Player -> player(d)
                 is Dest.MediaBrowse -> MediaBrowseScreen(vm, d)
                 is Dest.MediaDetail -> MediaDetailScreen(vm, nav.library, d)
                 is Dest.EmbedPlayer -> EmbedPlayer(vm, d)
                 is Dest.StreamPlayer -> StreamPlayerScreen(vm, d)
+                is Dest.Watch -> WatchScreen(vm, d)
                 is Dest.Token -> TokenScreen(vm)
             }
         }
@@ -322,10 +329,13 @@ private fun screenKey(nav: NavState): String {
         is Dest.Countries -> "countries"
         is Dest.Detail -> "detail:${d.dramaId}:${nav.stack.size}"
         is Dest.Player -> "player"
+        is Dest.Shelf -> "shelf:${d.kind}"
+        is Dest.TitlePage -> "title:${d.id}:${nav.stack.size}"
         is Dest.MediaBrowse -> "browse:${d.browseKey}"
         is Dest.MediaDetail -> "mdetail:${d.kind}:${d.tmdbId}:${nav.stack.size}"
         is Dest.EmbedPlayer -> "embed:${d.tmdbId}:${d.season}:${d.episode}"
         is Dest.StreamPlayer -> "stream:${d.progressKey}"
+        is Dest.Watch -> "watch:${d.progressKey}"
         is Dest.Token -> "token"
     }
     return "${nav.library.name}:$body"

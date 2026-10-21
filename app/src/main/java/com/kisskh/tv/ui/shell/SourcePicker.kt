@@ -12,6 +12,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +58,9 @@ import com.kisskh.tv.ui.theme.KhTheme
 fun sourceBrush(library: Library): Brush = when (library) {
     Library.CINEWAVE -> Brush.linearGradient(listOf(Color(0xFF1F6BFF), Color(0xFF00B8E6)))
     Library.CINEJOY -> Brush.linearGradient(listOf(Color(0xFF7B2FF7), Color(0xFFD63AF9)))
+    Library.REELIX -> Brush.linearGradient(listOf(Color(0xFF0E8F6E), Color(0xFF3DDC97)))
+    Library.ANISUGE -> Brush.linearGradient(listOf(Color(0xFFFF6A00), Color(0xFFFFB020)))
+    Library.NEXUS -> Brush.linearGradient(listOf(Color(0xFF5B4DFF), Color(0xFF9B6BFF)))
     Library.KISSKH -> Brush.linearGradient(listOf(Color(0xFFE50914), Color(0xFFFF6A3D)))
 }
 
@@ -63,12 +68,18 @@ fun sourceMark(library: Library): String = when (library) {
     Library.KISSKH -> "KH"
     Library.CINEWAVE -> "CW"
     Library.CINEJOY -> "CJ"
+    Library.REELIX -> "RX"
+    Library.ANISUGE -> "AS"
+    Library.NEXUS -> "NX"
 }
 
 /** One line on what each source is for, shown under its name in the picker. */
 private fun sourceBlurb(library: Library): String = when (library) {
     Library.CINEWAVE -> "Movies, TV and anime"
     Library.CINEJOY -> "Movies and TV, built-in player"
+    Library.REELIX -> "Movies, TV and anime"
+    Library.ANISUGE -> "Anime, sub and dub"
+    Library.NEXUS -> "Anime seasons and episodes"
     Library.KISSKH -> "Asian dramas and movies"
 }
 
@@ -134,8 +145,11 @@ fun SourcePicker(current: Library, onPick: (Library) -> Unit, onDismiss: () -> U
                 modifier = Modifier.semantics { heading() },
             )
             Row(
-                Modifier.padding(top = 36.dp),
-                horizontalArrangement = Arrangement.spacedBy(36.dp),
+                Modifier
+                    .padding(top = 36.dp)
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 48.dp),
+                horizontalArrangement = Arrangement.spacedBy(28.dp),
             ) {
                 LIBRARY_ORDER.forEach { library ->
                     val on = library == current

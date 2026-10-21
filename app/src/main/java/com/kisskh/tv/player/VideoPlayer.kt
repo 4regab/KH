@@ -8,8 +8,14 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.TextView
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -19,13 +25,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -35,8 +44,12 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import androidx.tv.material3.Text
 import com.kisskh.tv.R
 import com.kisskh.tv.api.SubtitleFile
+import com.kisskh.tv.ui.components.KhButton
+import com.kisskh.tv.ui.components.KhChip
+import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.isTelevision
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -62,6 +75,10 @@ fun VideoPlayer(
     onEpisodes: () -> Unit,
     /** Play the next episode, or null when there is none (the button is hidden). */
     onNext: (() -> Unit)?,
+    /** Play the previous episode, or null when there is none. */
+    onPrev: (() -> Unit)? = null,
+    /** Open the server list. Hidden when null. */
+    onServers: (() -> Unit)? = null,
     /** When false, Back is left to the screen (an error is already covering the video). */
     hideControlsOnBack: Boolean = true,
     /** Sent with the video and the subtitle files. KissKH stays on kisskh.co. */
@@ -111,6 +128,7 @@ fun VideoPlayer(
 
     val playerView = remember { mutableStateOf<PlayerView?>(null) }
     var controlsVisible by remember { mutableStateOf(true) }
+    var showTracks by remember { mutableStateOf(false) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -190,12 +208,24 @@ fun VideoPlayer(
                     visibility = if (showEpisodes) View.VISIBLE else View.GONE
                     setOnClickListener { if (showEpisodes) onEpisodes() }
                 }
+                view.findViewById<View>(R.id.kh_player_prev).apply {
+                    visibility = if (onPrev != null) View.VISIBLE else View.GONE
+                    setOnClickListener { onPrev?.invoke() }
+                }
                 view.findViewById<View>(R.id.kh_player_next).apply {
                     visibility = if (onNext != null) View.VISIBLE else View.GONE
                     setOnClickListener { onNext?.invoke() }
                 }
+                view.findViewById<View>(R.id.kh_player_servers).apply {
+                    visibility = if (onServers != null) View.VISIBLE else View.GONE
+                    setOnClickListener { onServers?.invoke() }
+                }
+                view.findViewById<View>(R.id.kh_player_tracks).setOnClickListener { showTracks = true }
             },
         )
+        if (showTracks) {
+            TrackSheet(player, onClose = { showTracks = false })
+        }
     }
 }
 
@@ -229,6 +259,60 @@ private fun PlayerView.enableTouchGestures(player: Player) {
 object PlayerHeaders {
     val Kisskh = mapOf("Referer" to "https://kisskh.co/", "Origin" to "https://kisskh.co")
     val CineJoy = mapOf("Referer" to "https://cinejoy.pk/", "Origin" to "https://cinejoy.pk")
+}
+
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+private fun TrackSheet(player: ExoPlayer, onClose: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.88f))
+            .verticalScroll(rememberScrollState())
+            .padding(32.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Audio, subtitles and quality", color = KhColors.TextPrimary)
+        KhButton("Close", onClick = onClose, primary = true)
+        KhChip(
+            text = "Subtitles off",
+            onClick = {
+                player.trackSelectionParameters = player.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    .build()
+                onClose()
+            },
+        )
+        player.currentTracks.groups.forEach { group ->
+            val heading = when (group.type) {
+                C.TRACK_TYPE_VIDEO -> "Quality"
+                C.TRACK_TYPE_AUDIO -> "Audio"
+                C.TRACK_TYPE_TEXT -> "Subtitles"
+                else -> return@forEach
+            }
+            for (index in 0 until group.length) {
+                if (!group.isTrackSupported(index)) continue
+                val format = group.getTrackFormat(index)
+                val name = when (group.type) {
+                    C.TRACK_TYPE_VIDEO -> if (format.height > 0) "${format.height}p" else format.label ?: "Video"
+                    else -> format.label ?: format.language ?: heading
+                }
+                KhChip(
+                    text = "$heading · $name",
+                    selected = group.isTrackSelected(index),
+                    onClick = {
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon()
+                            .setTrackTypeDisabled(group.type, false)
+                            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
+                            .build()
+                        onClose()
+                    },
+                )
+            }
+        }
+    }
 }
 
 private fun playbackMessage(error: PlaybackException): String = when (error.errorCode) {

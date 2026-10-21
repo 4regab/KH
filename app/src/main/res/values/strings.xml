@@ -10,4 +10,7 @@
     <string name="player_home">Home</string>
     <string name="player_episodes">Episodes</string>
     <string name="player_next">Next episode</string>
+    <string name="player_prev">Previous episode</string>
+    <string name="player_servers">Servers</string>
+    <string name="player_tracks">Audio, subtitles and quality</string>
 </resources>
