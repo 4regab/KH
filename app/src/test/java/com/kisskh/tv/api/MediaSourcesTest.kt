@@ -249,13 +249,22 @@ class MediaSourcesTest {
         val wave = kiss.selectLibrary(Library.CINEWAVE)
         assertEquals(Library.CINEWAVE, wave.library)
         assertTrue(wave.current is Dest.Home)
-        assertEquals(Dest.MediaBrowse(com.kisskh.tv.api.media.MediaKind.MOVIE), wave.selectTab(RootTab.MOVIES).current)
-        assertEquals(Dest.MediaBrowse(com.kisskh.tv.api.media.MediaKind.TV), wave.selectTab(RootTab.SERIES).current)
-        assertEquals(Dest.MediaBrowse(com.kisskh.tv.api.media.MediaKind.ANIME), wave.selectTab(RootTab.ANIME).current)
+        assertEquals(Dest.Shelf(com.kisskh.tv.api.media.MediaKind.MOVIE), wave.selectTab(RootTab.MOVIES).current)
+        assertEquals(Dest.Shelf(com.kisskh.tv.api.media.MediaKind.TV), wave.selectTab(RootTab.SERIES).current)
+        assertEquals(Dest.Shelf(com.kisskh.tv.api.media.MediaKind.ANIME), wave.selectTab(RootTab.ANIME).current)
         assertEquals(wave, wave.selectTab(RootTab.COUNTRIES))
 
         val joy = NavState(library = Library.CINEJOY)
         assertEquals(joy, joy.selectTab(RootTab.ANIME))
-        assertTrue(joy.selectTab(RootTab.SERIES).current is Dest.MediaBrowse)
+        assertTrue(joy.selectTab(RootTab.SERIES).current is Dest.Shelf)
+
+        val reelix = NavState(library = Library.REELIX)
+        assertEquals(Dest.Shelf(MediaKind.ANIME), reelix.selectTab(RootTab.ANIME).current)
+        assertEquals(reelix, reelix.selectTab(RootTab.COUNTRIES))
+        val nexus = reelix.selectLibrary(Library.NEXUS)
+        assertTrue(nexus.current is Dest.Home)
+        assertEquals(Library.NEXUS, nexus.library)
+        assertEquals(nexus, nexus.selectTab(RootTab.MOVIES))
+        assertEquals(Dest.Shelf(MediaKind.ANIME), nexus.selectTab(RootTab.ANIME).current)
     }
 }

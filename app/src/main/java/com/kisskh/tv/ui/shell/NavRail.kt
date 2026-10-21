@@ -223,11 +223,7 @@ private fun LibraryItem(
     labelAlpha: Float,
     onClick: () -> Unit,
 ) {
-    val mark = when (library) {
-        Library.KISSKH -> "KH"
-        Library.CINEWAVE -> "CW"
-        Library.CINEJOY -> "CJ"
-    }
+    val mark = library.key.uppercase()
     KhFocusable(
         onClick = onClick,
         modifier = Modifier

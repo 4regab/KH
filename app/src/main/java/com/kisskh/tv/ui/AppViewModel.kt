@@ -19,6 +19,7 @@ import com.kisskh.tv.api.suspendCatching
 import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.ui.home.HomeRails
 import com.kisskh.tv.ui.media.MediaSession
+import com.kisskh.tv.ui.shelf.ShelfSession
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -61,6 +62,7 @@ private const val HOME_FILTERED_ROW_SIZE = 20
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     val repo = Repository(app)
     val media = MediaSession(app, viewModelScope)
+    val shelf = ShelfSession(viewModelScope, repo, media.progress, cinejoyToken = { media.tokens.get() })
 
     // ---------------------------------------------------------------- navigation
 
@@ -394,6 +396,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun switchEmbed(dest: Dest.EmbedPlayer) {
         _nav.update { state ->
             if (state.current is Dest.EmbedPlayer) state.updateCurrent { dest } else state.push(dest)
+        }
+    }
+
+    /** Open the shared player, or replace the episode already on screen. */
+    fun openWatch(dest: Dest.Watch) {
+        _nav.update { state ->
+            if (state.current is Dest.Watch) state.updateCurrent { dest } else state.push(dest)
         }
     }
 

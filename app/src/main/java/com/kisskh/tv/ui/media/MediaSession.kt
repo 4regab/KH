@@ -168,6 +168,7 @@ class MediaSession(
             RowSpec("Popular movies") { tmdb.discover("movie", false, 1, TmdbPaths.todayUtc()).items },
             RowSpec("On the air") { tmdb.onTheAir().items },
         )
+        Library.REELIX, Library.ANISUGE, Library.NEXUS -> emptyList()
     }
 
     // ---------------------------------------------------------------- browse

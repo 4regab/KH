@@ -30,6 +30,7 @@ import com.kisskh.tv.api.CatalogQuery
 import com.kisskh.tv.api.ContentType
 import com.kisskh.tv.api.Country
 import com.kisskh.tv.api.Show
+import com.kisskh.tv.api.media.MediaKind
 import com.kisskh.tv.api.SortOrder
 import com.kisskh.tv.api.Status
 import com.kisskh.tv.ui.AppViewModel
@@ -129,7 +130,7 @@ fun CatalogScreen(vm: AppViewModel, dest: Dest.Catalog) {
                     tracker = tracker,
                     onOpen = { show ->
                         vm.saveFocus(FocusKeys.show(show.id), gridState.firstVisibleItemIndex)
-                        vm.push(Dest.Detail(show.id))
+                        vm.push(Dest.TitlePage(show.id.toString(), kindFor(dest.query.type)))
                     },
                     footer = when {
                         state.isLoadingMore -> GridFooter.Loading
@@ -250,4 +251,10 @@ private fun CountryTabs(
         }
         else -> Unit
     }
+}
+
+private fun kindFor(type: ContentType): MediaKind = when (type) {
+    ContentType.MOVIE -> MediaKind.MOVIE
+    ContentType.ANIME -> MediaKind.ANIME
+    else -> MediaKind.TV
 }

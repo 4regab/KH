@@ -23,7 +23,7 @@ object StreamSniff {
         if (EmbedPolicy.blocked(host)) return false
         val path = (uri.rawPath ?: "").lowercase()
         if (decoys.any { it in path }) return false
-        return path.endsWith(".m3u8")
+        return path.endsWith(".m3u8") || path.endsWith(".mp4")
     }
 
     /**

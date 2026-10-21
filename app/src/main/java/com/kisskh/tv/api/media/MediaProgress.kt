@@ -5,22 +5,27 @@ import com.kisskh.tv.api.ResumeDecision
 import com.kisskh.tv.api.ResumeRules
 
 /**
- * Progress for CineWave and CineJoy.
+ * Progress for every source except KissKH.
  *
  * KissKH stays in the `resume` and `history` files (`ep_<id>` and `<dramaId>.<field>`). Nothing
- * here writes those keys. Keys look like `cw:movie:550` and `cj:tv:1396:1:2`.
+ * here writes those keys. Keys look like `cw:movie:550`, `cj:tv:1396:1:2` and
+ * `nx:tv:9e01bcf0-14ec-4ab0-aebb-9112064725f5:1:3`. The id segment is text so a UUID fits.
  *
- * An embed has no readable playback position (the video is a third-party iframe), so opening one
- * only records the title. A Febbox stream uses the same save rules as KissKH.
+ * An embed has no readable playback position (the video is a third-party page), so opening one
+ * only records the title. A direct stream uses the same save rules as KissKH.
  */
 object MediaKeys {
-    fun movie(source: String, id: Int) = "$source:movie:$id"
-    fun episode(source: String, id: Int, season: Int, episode: Int) = "$source:tv:$id:$season:$episode"
+    private val sources = setOf("cw", "cj", "rx", "as", "nx")
+
+    fun movie(source: String, id: Int) = movie(source, id.toString())
+    fun movie(source: String, id: String) = "$source:movie:$id"
+    fun episode(source: String, id: Int, season: Int, episode: Int) = episode(source, id.toString(), season, episode)
+    fun episode(source: String, id: String, season: Int, episode: Int) = "$source:tv:$id:$season:$episode"
 
     fun valid(key: String): Boolean {
         if (key.startsWith("ep_")) return false
         val parts = key.split(":")
-        if (parts.size < 3 || (parts[0] != "cw" && parts[0] != "cj")) return false
+        if (parts.size < 3 || parts[0] !in sources || parts[2].isBlank()) return false
         return (parts[1] == "movie" && parts.size == 3) || (parts[1] == "tv" && parts.size == 5)
     }
 }
@@ -30,6 +35,8 @@ data class MediaEntry(
     val source: String,
     val kind: String,
     val id: Int,
+    /** The id as stored in the key. Numeric titles keep [id]; a UUID stays here when [id] is 0. */
+    val token: String = id.toString(),
     val season: Int,
     val episode: Int,
     val title: String,
@@ -99,11 +106,13 @@ class MediaProgress(
             if (!MediaKeys.valid(key)) return@mapNotNull null
             val parts = key.split(":")
             val title = prefs.getString(title(key), null) ?: return@mapNotNull null
+            val token = parts[2]
             MediaEntry(
                 key = key,
                 source = parts[0],
                 kind = parts[1],
-                id = parts[2].toInt(),
+                id = token.toIntOrNull() ?: 0,
+                token = token,
                 season = parts.getOrNull(3)?.toIntOrNull() ?: 0,
                 episode = parts.getOrNull(4)?.toIntOrNull() ?: 0,
                 title = title,
