@@ -8,8 +8,8 @@ import java.util.Locale
 
 /**
  * Anisuge (anisuge.tv). The catalog is HTML. Episode and server lists are HTML inside JSON, and
- * the episode list is gated by [vrf]. Each server returns an embed URL (megaplay and others),
- * which the app sniffs. Sub and dub are two groups of those servers.
+ * the episode list is gated by [vrf]. Megaplay servers are decrypted in [MegaPlay]. Other
+ * servers are still embed pages. Sub and dub are two groups of those servers.
  */
 object Anisuge {
     const val SITE = "https://anisuge.tv"
@@ -142,6 +142,8 @@ object Anisuge {
                 ?: "sub"
             for (tag in HtmlText.openingTags(chunk, "div")) {
                 val link = HtmlText.attr(tag, "data-link-id") ?: continue
+                val classes = HtmlText.attr(tag, "class").orEmpty().split(Regex("\\s+"))
+                if ("server" !in classes) continue
                 val name = Regex("""<span>([^<]+)</span>""").find(chunk.substringAfter(tag).take(200))?.groupValues?.get(1)?.trim()
                     ?: "Server"
                 out += Server(name = name, audio = audio, linkId = link)

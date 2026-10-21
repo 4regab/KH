@@ -8,8 +8,8 @@ import java.net.URLEncoder
 
 /**
  * Reelix (reelix.ac). Catalog pages are server-rendered cards. Search and a TV season are JSON.
- * Playback starts at vidcore.io (the site's "direct" player) and then the embed list printed on
- * the watch page. Both are pages: the app sniffs the HLS request and falls back to the page.
+ * Playback starts at vidcore.io. A blocked vidcore page is skipped. The other servers are the
+ * embed list from the watch page, and they stay in the page so the embed's own player can run.
  */
 object Reelix {
     const val SITE = "https://reelix.ac"
@@ -60,7 +60,7 @@ object Reelix {
                 "zxc" to "https://player.zxcprime.xyz/embed/tv/$id/$s/$e",
             )
         }
-        return pages.map { (name, url) -> PlayTarget(name = name, page = url, referer = REFERER) }
+        return pages.map { (name, url) -> PlayTarget(name = name, page = url, referer = REFERER, sniff = false) }
     }
 
     fun targets(movie: Boolean, id: String, season: Int, episode: Int): List<PlayTarget> {

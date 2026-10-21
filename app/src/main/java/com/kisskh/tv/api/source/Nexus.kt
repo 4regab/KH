@@ -8,8 +8,9 @@ import java.net.URLEncoder
 
 /**
  * Anime Nexus (anime.nexus). The site is a client of api.anime.nexus. Requests need the same
- * fingerprint headers the page sends. Images are imgproxy paths on anime.delivery. The watch
- * page is their own player; the app loads it and takes the HLS playlist it requests.
+ * fingerprint headers the page sends. Images are imgproxy paths on anime.delivery.
+ * The stream API names an m3u8, but every playlist and segment also needs a token from their
+ * socket. The page player asks for those tokens, so playback stays in that page.
  */
 object Nexus {
     const val SITE = "https://anime.nexus"
@@ -41,6 +42,14 @@ object Nexus {
         val tail = slug.trim('/').ifBlank { "watch" }
         return "$SITE/watch/$episodeId/$tail"
     }
+
+    /** The site's own watch page. Sniffing the playlist drops the socket token and the CDN refuses it. */
+    fun player(episodeId: String, slug: String): PlayTarget = PlayTarget(
+        name = "Nexus",
+        page = watchUrl(episodeId, slug),
+        referer = REFERER,
+        sniff = false,
+    )
 
     fun image(path: String?): String? {
         if (path.isNullOrBlank()) return null

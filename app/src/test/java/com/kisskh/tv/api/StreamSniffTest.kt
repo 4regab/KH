@@ -34,6 +34,13 @@ class StreamSniffTest {
             StreamSniff.headers(emptyMap(), "https://vidrock.net/embed/movie/550"),
         )
         assertNull(StreamSniff.origin("not a url"))
+        assertEquals(
+            mapOf("Referer" to "https://megaplay.buzz/", "Origin" to "https://megaplay.buzz"),
+            StreamSniff.headers(
+                mapOf("Referer" to "https://megaplay.buzz/stream/s-2/36396/sub"),
+                "https://megaplay.buzz/stream/s-2/36396/sub",
+            ),
+        )
     }
 
     @Test

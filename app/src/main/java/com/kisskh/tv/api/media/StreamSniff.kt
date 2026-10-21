@@ -39,6 +39,11 @@ object StreamSniff {
             }
         }
         if ("Referer" !in out) origin(page)?.let { out["Referer"] = "$it/" }
+        // megaplay's CDN accepts the origin and refuses the player path as Referer.
+        if (page.startsWith("https://megaplay.buzz") || out["Referer"].orEmpty().startsWith("https://megaplay.buzz")) {
+            out["Referer"] = "https://megaplay.buzz/"
+            out["Origin"] = "https://megaplay.buzz"
+        }
         return out
     }
 

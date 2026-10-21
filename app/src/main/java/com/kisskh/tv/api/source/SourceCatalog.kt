@@ -168,13 +168,7 @@ object SourceCatalog {
             Library.CINEJOY -> joyTargets(card, movie, season, number, cinejoyToken, febbox)
             Library.REELIX -> Reelix.targets(movie, card.id, season, number)
             Library.ANISUGE -> anisugeTargets(card, episode, audio)
-            Library.NEXUS -> listOf(
-                PlayTarget(
-                    name = "Nexus",
-                    page = Nexus.watchUrl(episode.id, episode.slug),
-                    referer = Nexus.REFERER,
-                ),
-            )
+            Library.NEXUS -> listOf(Nexus.player(episode.id, episode.slug))
             Library.KISSKH -> emptyList()
         }
         return PlayPlan(card.name, label, card.poster ?: card.backdrop, key, targets)
@@ -257,8 +251,40 @@ object SourceCatalog {
                 mapOf("Referer" to Anisuge.REFERER, "X-Requested-With" to "XMLHttpRequest", "Accept" to "application/json"),
             )
             val page = Anisuge.parseServerUrl(body) ?: return@mapNotNull null
-            PlayTarget(name = server.name, audio = server.audio, page = page, referer = Anisuge.REFERER)
+            megaplayOrPage(server, page)
         }
+    }
+
+    private fun megaplayOrPage(server: Anisuge.Server, page: String): PlayTarget {
+        val id = MegaPlay.streamId(page)
+        if (id != null && MegaPlay.handles(page)) {
+            try {
+                val json = get(
+                    MegaPlay.sourcesUrl(id),
+                    mapOf(
+                        "Referer" to page,
+                        "Origin" to MegaPlay.ORIGIN,
+                        "Accept" to "application/json",
+                    ),
+                )
+                val resolved = MegaPlay.resolve(json)
+                if (resolved != null) {
+                    return PlayTarget(
+                        name = server.name,
+                        audio = server.audio,
+                        page = page,
+                        referer = MegaPlay.REFERER,
+                        direct = resolved.url,
+                        headers = MegaPlay.playbackHeaders(),
+                        subs = resolved.subs,
+                        sniff = false,
+                    )
+                }
+            } catch (_: Exception) {
+                // The embed page is still a player if getSources is down.
+            }
+        }
+        return PlayTarget(name = server.name, audio = server.audio, page = page, referer = Anisuge.REFERER)
     }
 
     private fun jsonResult(json: String): String {

@@ -6,6 +6,7 @@ import com.kisskh.tv.api.media.MediaKind
 import com.kisskh.tv.api.media.MediaProgress
 import com.kisskh.tv.api.source.Anisuge
 import com.kisskh.tv.api.source.EpisodeRef
+import com.kisskh.tv.api.source.MegaPlay
 import com.kisskh.tv.api.source.HtmlText
 import com.kisskh.tv.api.source.Nexus
 import com.kisskh.tv.api.source.Reelix
@@ -45,6 +46,7 @@ class SourceAdaptersTest {
         val servers = Anisuge.parseServers(
             """
             <div class="server-type" data-type="sub">
+              <div class="notice" data-link-id="NOPE"><span>If the current server doesn't work</span></div>
               <div class="server" data-link-id="SUB1"><span>HD-1</span></div>
               <div class="server" data-link-id="SUB2"><span>Vidstream-2</span></div>
             </div>
@@ -68,6 +70,32 @@ class SourceAdaptersTest {
         assertEquals(MediaKind.ANIME, found.single().kind)
         assertEquals("one-piece-odmau", Anisuge.slugOf("https://anisuge.tv/anime/one-piece-odmau/ep-19"))
         assertEquals("1642", Anisuge.mangaId("""<div data-manga-id="1642"></div>"""))
+    }
+
+    @Test
+    fun megaplayDecryptsTheSourceBlobAndSignsThePlaylist() {
+        val enc = "wdeBruh3qqn_i5wUNnyaPcXqidp1UWP84FfPHzGyKXA2hDZBfMCmZ4FLvs7_pQuH549Eptax8UOjAJyRIZfrRhUGUKy9OBeGh2yB_-m_JLAlLnWTLzYZC3_C5I4ltveYoiaU66Do9RgI9bCetmk_o87-sd66brXnWV1MbjhLnjw"
+        val file = "https://fetch.nexabloom.top/anime/f899139df5e1059396431415e770c6dd/61b87186ab260d05003427e16ccf5657/master.m3u8"
+        assertEquals("""{"file":"$file"}""", MegaPlay.decrypt(enc))
+        val signed = MegaPlay.sign(
+            "https://cdn.example/anime/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/master.m3u8",
+            1_700_000_000L,
+        )
+        assertEquals(
+            "https://cdn.example/anime/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/master.m3u8?token=MTcwMDAwMDA5MHxhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYS9iYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYg.MBX02sGHErfEnDmWTzp3xvQTGRDypONCAlqPpMiFvyc",
+            signed,
+        )
+        assertEquals(file, MegaPlay.sign("$file?token=already", 1_700_000_000L).substringBefore("?"))
+        assertEquals("https://cdn.example/plain.mp4", MegaPlay.sign("https://cdn.example/plain.mp4", 1_700_000_000L))
+        assertEquals("2142", MegaPlay.streamId("https://megaplay.buzz/stream/s-2/2142/sub?s=tcdn"))
+        assertTrue(MegaPlay.handles("https://megaplay.buzz/stream/s-2/2142/sub"))
+        val resolved = MegaPlay.resolve(
+            """{"enc":"$enc","tracks":[{"file":"https://cdn.example/eng.vtt","label":"English","kind":"captions"},{"file":"https://cdn.example/thumbs.vtt","kind":"thumbnails"}]}""",
+            1_700_000_000L,
+        )
+        assertEquals(MegaPlay.sign(file, 1_700_000_000L), resolved?.url)
+        assertEquals("English", resolved?.subs?.single()?.label)
+        assertEquals("https://cdn.example/eng.vtt", resolved?.subs?.single()?.uri)
     }
 
     @Test
@@ -111,6 +139,8 @@ class SourceAdaptersTest {
         assertEquals("https://vsembed.su/embed/movie/438631", movie.first { it.name == "vsembed" }.page)
         assertEquals("https://multiembed.mov/?video_id=438631&tmdb=1", movie.first { it.name == "superembed" }.page)
         assertEquals("https://vsembed.su/embed/tv/1396/1/1", Reelix.embeds(false, "1396", 1, 1).first().page)
+        assertTrue(movie.first().sniff)
+        assertFalse(movie.first { it.name == "vsembed" }.sniff)
         assertEquals("Paul Atreides", HtmlText.paragraph("""<p class="reel-title-overview">Paul Atreides</p>""", "reel-title-overview"))
     }
 
@@ -141,6 +171,7 @@ class SourceAdaptersTest {
         assertEquals(1, episodes.single().number)
         assertEquals("https://anime.delivery/small.jpg", episodes.single().still)
         assertEquals("https://anime.nexus/watch/019f99d1-0bf5-71f0-b763-c290273cc0e0/god-of-thunder", Nexus.watchUrl(episodes.single().id, episodes.single().slug))
+        assertFalse(Nexus.player(episodes.single().id, episodes.single().slug).sniff)
         assertEquals(3, Nexus.lastPage("""{"meta":{"last_page":3}}"""))
     }
 
