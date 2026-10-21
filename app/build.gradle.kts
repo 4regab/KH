@@ -48,6 +48,9 @@ dependencies {
 
     implementation("io.coil-kt:coil-compose:2.7.0")
 
+    // Reaches the video inside embed players' frames, for the seek bar.
+    implementation("androidx.webkit:webkit:1.12.1")
+
     // Media3 ExoPlayer — HLS playback, the YouTube-grade player
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.5.1")

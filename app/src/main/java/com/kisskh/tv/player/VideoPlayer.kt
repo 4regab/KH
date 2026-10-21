@@ -1,7 +1,10 @@
 package com.kisskh.tv.player
 
+import android.annotation.SuppressLint
 import android.net.Uri
+import android.view.GestureDetector
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.widget.TextView
 import androidx.activity.compose.BackHandler
@@ -47,6 +50,7 @@ import com.kisskh.tv.api.SubtitleFile
 import com.kisskh.tv.ui.components.KhButton
 import com.kisskh.tv.ui.components.KhChip
 import com.kisskh.tv.ui.theme.KhColors
+import com.kisskh.tv.ui.theme.isTelevision
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -191,6 +195,7 @@ fun VideoPlayer(
                 view.findViewById<TextView>(R.id.kh_player_label).text = label
                 view.showController()
                 view.requestFocus()
+                if (!isTelevision(viewContext)) view.enableTouchGestures(player)
                 playerView.value = view
                 view
             },
@@ -222,6 +227,33 @@ fun VideoPlayer(
             TrackSheet(player, onClose = { showTracks = false })
         }
     }
+}
+
+/**
+ * Phone touch, like YouTube and Netflix: one tap shows or hides the controls, a double tap on the left
+ * or right half skips back or forward 10 s. The controls' own buttons still get their taps first.
+ */
+@SuppressLint("ClickableViewAccessibility")
+private fun PlayerView.enableTouchGestures(player: Player) {
+    // TalkBack's click goes through performClick, which then also hides the controls.
+    controllerHideOnTouch = true
+    val detector = GestureDetector(
+        context,
+        object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
+
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                if (isControllerFullyVisible) hideController() else showController()
+                return true
+            }
+
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                if (e.x < width / 2f) player.seekBack() else player.seekForward()
+                return true
+            }
+        },
+    )
+    setOnTouchListener { _, event -> detector.onTouchEvent(event) }
 }
 
 object PlayerHeaders {
