@@ -2,6 +2,8 @@ package com.kisskh.tv.api.source
 
 import com.kisskh.tv.api.SubtitleFile
 import com.kisskh.tv.api.media.Base64Url
+import com.kisskh.tv.api.media.SubLink
+import com.kisskh.tv.api.media.SubLists
 import com.squareup.moshi.JsonReader
 import okio.Buffer
 import java.net.URLEncoder
@@ -30,6 +32,17 @@ object MegaPlay {
 
     fun streamId(page: String): String? = STREAM_ID.find(page)?.groupValues?.get(1)
 
+    /**
+     * The id the player script sends to getSources: `data-id` on the `megaplay-player` element of the
+     * page. The number in the page URL is a different id, and on some titles it gives another show's stream.
+     */
+    fun dataId(html: String): String? {
+        val tags = HtmlText.openingTags(html, "div")
+        val player = tags.firstOrNull { HtmlText.attr(it, "id") == "megaplay-player" }
+            ?: tags.firstOrNull { HtmlText.attr(it, "data-id") != null }
+        return player?.let { HtmlText.attr(it, "data-id") }?.trim()?.takeIf { it.isNotEmpty() && it.all(Char::isDigit) }
+    }
+
     fun sourcesUrl(id: String): String =
         "$ORIGIN/stream/getSourcesNew?id=${URLEncoder.encode(id, "UTF-8")}&platform=OTHER"
 
@@ -52,7 +65,10 @@ object MegaPlay {
         }
         val file = decrypted?.let { fileOf(it) } ?: doc.file
         if (file.isNullOrBlank() || !file.startsWith("http")) return null
-        return Resolved(sign(file, nowEpochSeconds), doc.subs)
+        // Some titles list dozens of languages. English first and one per other language, so the player does not fetch them all.
+        val subs = SubLists.pick(doc.subs.map { SubLink(it.uri, it.label, it.language) }, SubLists.LIMIT)
+            .map { SubtitleFile(it.url, it.label, it.lang) }
+        return Resolved(sign(file, nowEpochSeconds), subs)
     }
 
     fun decrypt(enc: String): String {
@@ -149,7 +165,7 @@ object MegaPlay {
             reader.endObject()
             if (!uri.startsWith("http") || kind.equals("thumbnails", true)) continue
             val name = label.ifBlank { "Subtitles" }
-            out += SubtitleFile(uri, name, name)
+            out += SubtitleFile(uri, name, SubLists.code(name, name))
         }
         reader.endArray()
         return out

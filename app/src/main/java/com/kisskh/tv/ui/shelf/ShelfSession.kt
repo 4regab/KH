@@ -26,6 +26,7 @@ import com.kisskh.tv.ui.errorMessage
 import com.kisskh.tv.ui.uiError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -37,6 +38,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 data class BrowseState(
     val items: List<TitleCard> = emptyList(),
@@ -406,10 +408,18 @@ class ShelfSession(
         Resolved(card.copy(name = detail.card.name, poster = detail.card.poster ?: card.poster, slug = detail.card.slug.ifBlank { card.slug }), episode, episodes.getOrNull(index - 1), episodes.getOrNull(index + 1))
     }
 
-    suspend fun plan(library: Library, card: TitleCard, episode: EpisodeRef, audio: String): PlayPlan =
-        withContext(Dispatchers.IO) {
-            SourceCatalog.play(library, card, episode, audio, cinejoyToken(), febbox)
+    // A lookup in progress, by episode. When the player screen is rebuilt mid-lookup (a phone turning to
+    // landscape swaps the whole layout), the new screen joins the running lookup instead of starting a second.
+    private val planCalls = ConcurrentHashMap<String, Deferred<PlayPlan>>()
+
+    suspend fun plan(library: Library, card: TitleCard, episode: EpisodeRef, audio: String): PlayPlan {
+        val key = "${library.key}|${card.id}|${episode.id}|${episode.season}|${episode.number}|$audio"
+        val call = planCalls.getOrPut(key) {
+            scope.async(Dispatchers.IO) { SourceCatalog.play(library, card, episode, audio, cinejoyToken(), febbox) }
+                .also { started -> started.invokeOnCompletion { planCalls.remove(key, started) } }
         }
+        return call.await()
+    }
 
     private suspend fun <T> io(block: suspend () -> T): Result<T> = withContext(Dispatchers.IO) {
         try {

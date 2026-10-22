@@ -3,7 +3,7 @@
 KH is an Android app for phones and Android TV. It browses and plays titles from several streaming
 sources in one design. It reads each site's own data and does not wrap the website.
 
-Version 3.0. Package `com.kisskh.tv`. Android 6.0 (API 23) or newer.
+Version 3.1. Package `com.kisskh.tv`. Android 6.0 (API 23) or newer.
 
 ## Sources
 

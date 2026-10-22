@@ -5,6 +5,7 @@ import com.kisskh.tv.api.media.MediaKind
 import com.squareup.moshi.JsonReader
 import okio.Buffer
 import java.net.URLEncoder
+import java.util.UUID
 
 /**
  * Anime Nexus (anime.nexus). The site is a client of api.anime.nexus. Requests need the same
@@ -17,14 +18,16 @@ object Nexus {
     const val API = "https://api.anime.nexus"
     const val IMAGES = "https://anime.delivery"
     const val REFERER = "https://anime.nexus/"
-    const val FINGERPRINT = "11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222"
+    // Cloudflare blocks one fixed value shared by every install. The site's own script sends two random
+    // UUIDs joined by ':', so the app makes one such pair per run and keeps it for all its requests.
+    private val fingerprint: String by lazy { "${UUID.randomUUID()}:${UUID.randomUUID()}" }
 
     fun headers(): Map<String, String> = linkedMapOf(
         "Accept" to "application/json, text/plain, */*",
         "Origin" to SITE,
         "Referer" to REFERER,
-        "X-Client-Fingerprint" to FINGERPRINT,
-        "x-fingerprint" to FINGERPRINT,
+        "X-Client-Fingerprint" to fingerprint,
+        "x-fingerprint" to fingerprint,
     )
 
     fun featuredUrl() = "$API/api/anime/featured"

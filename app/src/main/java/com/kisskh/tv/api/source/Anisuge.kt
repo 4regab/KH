@@ -220,7 +220,8 @@ object Anisuge {
 
     fun parseServers(html: String): List<Server> {
         val out = ArrayList<Server>()
-        val chunks = html.split(Regex("""(?=<div class="server-type")"""))
+        // The live groups are `class="server-type type mb-2"`, so the class value cannot be matched whole.
+        val chunks = html.split(Regex("""(?=<div class="server-type[ "])"""))
         for (chunk in chunks) {
             val audio = HtmlText.attr(chunk.substringBefore('>'), "data-type")
                 ?: Regex("""data-type="(sub|dub)"""").find(chunk)?.groupValues?.get(1)

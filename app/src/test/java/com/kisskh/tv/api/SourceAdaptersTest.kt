@@ -45,12 +45,12 @@ class SourceAdaptersTest {
 
         val servers = Anisuge.parseServers(
             """
-            <div class="server-type" data-type="sub">
+            <div class="server-type type mb-2" data-type="sub">
               <div class="notice" data-link-id="NOPE"><span>If the current server doesn't work</span></div>
               <div class="server" data-link-id="SUB1"><span>HD-1</span></div>
               <div class="server" data-link-id="SUB2"><span>Vidstream-2</span></div>
             </div>
-            <div class="server-type" data-type="dub">
+            <div class="server-type type mb-2" data-type="dub">
               <div class="server" data-link-id="DUB1"><span>HD-1</span></div>
             </div>
             """.trimIndent(),
@@ -88,6 +88,12 @@ class SourceAdaptersTest {
         assertEquals(file, MegaPlay.sign("$file?token=already", 1_700_000_000L).substringBefore("?"))
         assertEquals("https://cdn.example/plain.mp4", MegaPlay.sign("https://cdn.example/plain.mp4", 1_700_000_000L))
         assertEquals("2142", MegaPlay.streamId("https://megaplay.buzz/stream/s-2/2142/sub?s=tcdn"))
+        assertEquals(
+            "36396",
+            MegaPlay.dataId("""<div class="fix-area" id="megaplay-player"
+                data-id="36396"
+                data-realid="2142">"""),
+        )
         assertTrue(MegaPlay.handles("https://megaplay.buzz/stream/s-2/2142/sub"))
         val resolved = MegaPlay.resolve(
             """{"enc":"$enc","tracks":[{"file":"https://cdn.example/eng.vtt","label":"English","kind":"captions"},{"file":"https://cdn.example/thumbs.vtt","kind":"thumbnails"}]}""",

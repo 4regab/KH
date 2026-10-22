@@ -1,5 +1,6 @@
 package com.kisskh.tv.api.source
 
+import android.util.Log
 import com.kisskh.tv.api.CatalogQuery
 import com.kisskh.tv.api.ContentType
 import com.kisskh.tv.api.Country
@@ -22,6 +23,7 @@ import com.kisskh.tv.api.media.TmdbPaths
 import com.kisskh.tv.api.media.TmdbTitle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -44,6 +46,7 @@ object SourceCatalog {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
     private val cinejoyHeaders = mapOf("Referer" to "https://cinejoy.pk/", "Origin" to "https://cinejoy.pk")
+    private const val MEGAPLAY_TAG = "KhMegaPlay"
     private val waveReferer = "https://watch.cinewave.qzz.io/"
 
     fun get(url: String, headers: Map<String, String> = emptyMap(), client: OkHttpClient = http): String {
@@ -183,7 +186,7 @@ object SourceCatalog {
         else -> emptyList()
     }
 
-    fun play(
+    suspend fun play(
         library: Library,
         card: TitleCard,
         episode: EpisodeRef,
@@ -260,7 +263,7 @@ object SourceCatalog {
         )
     }
 
-    private fun anisugeTargets(card: TitleCard, episode: EpisodeRef, audio: String): List<PlayTarget> {
+    private suspend fun anisugeTargets(card: TitleCard, episode: EpisodeRef, audio: String): List<PlayTarget> {
         val current = if (episode.token.isNotBlank()) episode else {
             val show = get(Anisuge.showUrl(card.slug.ifBlank { card.id }), mapOf("Referer" to Anisuge.REFERER))
             val manga = Anisuge.mangaId(show) ?: return emptyList()
@@ -279,47 +282,65 @@ object SourceCatalog {
         )
         val wanted = audio.ifBlank { "sub" }
         val servers = Anisuge.parseServers(serversHtml)
-        val picked = servers.filter { it.audio.equals(wanted, true) }.ifEmpty { servers }.take(6)
-        return picked.mapNotNull { server ->
-            val body = get(
-                Anisuge.serverUrl(server.linkId),
-                mapOf("Referer" to Anisuge.REFERER, "X-Requested-With" to "XMLHttpRequest", "Accept" to "application/json"),
-            )
-            val page = Anisuge.parseServerUrl(body) ?: return@mapNotNull null
-            megaplayOrPage(server, page)
+        val matching = servers.filter { it.audio.equals(wanted, true) }
+        // The other audio gets one server, so the Audio list in the player still offers it without doubling the lookups.
+        val picked = if (matching.isEmpty()) servers.take(6) else matching.take(5) + servers.filterNot { it in matching }.take(1)
+        // The servers are independent, so look them all up at once. awaitAll keeps the list in server order.
+        return coroutineScope {
+            picked.map { server ->
+                async(Dispatchers.IO) {
+                    val body = get(
+                        Anisuge.serverUrl(server.linkId),
+                        mapOf("Referer" to Anisuge.REFERER, "X-Requested-With" to "XMLHttpRequest", "Accept" to "application/json"),
+                    )
+                    Anisuge.parseServerUrl(body)?.let { page -> megaplayOrPage(server, page) }
+                }
+            }.awaitAll().filterNotNull()
         }
     }
 
     private fun megaplayOrPage(server: Anisuge.Server, page: String): PlayTarget {
-        val id = MegaPlay.streamId(page)
-        if (id != null && MegaPlay.handles(page)) {
-            try {
-                val json = get(
-                    MegaPlay.sourcesUrl(id),
-                    mapOf(
-                        "Referer" to page,
-                        "Origin" to MegaPlay.ORIGIN,
-                        "Accept" to "application/json",
-                    ),
-                )
-                val resolved = MegaPlay.resolve(json)
-                if (resolved != null) {
-                    return PlayTarget(
-                        name = server.name,
-                        audio = server.audio,
-                        page = page,
-                        referer = MegaPlay.REFERER,
-                        direct = resolved.url,
-                        headers = MegaPlay.playbackHeaders(),
-                        subs = resolved.subs,
-                        sniff = false,
-                    )
-                }
-            } catch (_: Exception) {
-                // The embed page is still a player if getSources is down.
+        // The embed page is still a player if getSources is down, so every failure ends here.
+        val fallback = PlayTarget(name = server.name, audio = server.audio, page = page, referer = Anisuge.REFERER)
+        if (!MegaPlay.handles(page)) return fallback
+        var id: String? = null
+        try {
+            // The player asks for sources with the page's own data-id. The number in the URL is another id.
+            val html = get(page, mapOf("Referer" to Anisuge.REFERER))
+            id = MegaPlay.dataId(html) ?: MegaPlay.streamId(page)
+            if (id == null) {
+                Log.w(MEGAPLAY_TAG, "no id for page=$page")
+                return fallback
             }
+            val json = get(
+                MegaPlay.sourcesUrl(id),
+                mapOf(
+                    "Referer" to page,
+                    "Origin" to MegaPlay.ORIGIN,
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "Accept" to "application/json",
+                ),
+            )
+            val resolved = MegaPlay.resolve(json)
+            if (resolved == null) {
+                Log.w(MEGAPLAY_TAG, "getSources gave no stream page=$page id=$id")
+                return fallback
+            }
+            Log.i(MEGAPLAY_TAG, "resolved page=$page id=$id subs=${resolved.subs.size}")
+            return PlayTarget(
+                name = server.name,
+                audio = server.audio,
+                page = page,
+                referer = MegaPlay.REFERER,
+                direct = resolved.url,
+                headers = MegaPlay.playbackHeaders(),
+                subs = resolved.subs,
+                sniff = false,
+            )
+        } catch (e: Exception) {
+            Log.w(MEGAPLAY_TAG, "getSources failed page=$page id=$id", e)
+            return fallback
         }
-        return PlayTarget(name = server.name, audio = server.audio, page = page, referer = Anisuge.REFERER)
     }
 
     private fun jsonResult(json: String): String {
