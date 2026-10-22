@@ -4,7 +4,7 @@ A native Android app for phones and Android TV (Chromecast with Google TV). It b
 from several sources through one design, and talks to each site's own data instead of wrapping
 the website.
 
-Version 1.3.
+Version 2.0.
 
 ## Sources
 
@@ -37,6 +37,12 @@ Pick one with the source button at the top of the phone screen, or from the TV r
   marked, resume where you stopped. The best quality is always chosen. Movies and TV start with
   English audio and subtitles when the stream has them; anime keeps its original audio.
 - Leaving the app pauses the video. The screen stays on and the system bars hide while watching.
+- English audio check: servers that only have non-English audio are skipped.
+- Downloads run one at a time.
+- The source picker shows each site's real logo.
+- Zoom the video with a pinch or the Fit/Fill button.
+- Titles are marked "Coming soon" or "Not available" when they can't be played yet.
+- Reelix home loads even when the site's front page hangs.
 
 ## Limits
 

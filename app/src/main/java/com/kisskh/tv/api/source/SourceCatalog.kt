@@ -19,6 +19,9 @@ import com.kisskh.tv.api.media.SubLists
 import com.kisskh.tv.api.media.TmdbClient
 import com.kisskh.tv.api.media.TmdbPaths
 import com.kisskh.tv.api.media.TmdbTitle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -41,10 +44,10 @@ object SourceCatalog {
     private val cinejoyHeaders = mapOf("Referer" to "https://cinejoy.pk/", "Origin" to "https://cinejoy.pk")
     private val waveReferer = "https://watch.cinewave.qzz.io/"
 
-    fun get(url: String, headers: Map<String, String> = emptyMap()): String {
+    fun get(url: String, headers: Map<String, String> = emptyMap(), client: OkHttpClient = http): String {
         val builder = Request.Builder().url(url).header("User-Agent", UA).header("Accept", headers["Accept"] ?: "*/*")
         headers.forEach { (key, value) -> builder.header(key, value) }
-        http.newCall(builder.build()).execute().use { response ->
+        client.newCall(builder.build()).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) error("HTTP ${response.code}")
             return body
@@ -137,7 +140,7 @@ object SourceCatalog {
         when (library) {
             Library.KISSKH -> kissDetail(repo, id, kind)
             Library.CINEWAVE, Library.CINEJOY -> tmdbDetail(library, id, kind, tmdb)
-            Library.REELIX -> reelixDetail(id, kind, slug, name, poster)
+            Library.REELIX -> reelixDetail(id, kind, slug, name, poster, tmdb)
             Library.ANISUGE -> anisugeDetail(slug.ifBlank { id }, name, poster)
             Library.NEXUS -> nexusDetail(id, slug, name, poster)
         }
@@ -298,26 +301,52 @@ object SourceCatalog {
         return json
     }
 
-    private fun reelixRows(): List<ShelfRow> {
-        val home = get(Reelix.SITE + "/", mapOf("Referer" to Reelix.REFERER))
+    // The Reelix home page can hang for a long time. It gets a short timeout and is optional:
+    // if it fails, the screen just loses the Trending row. Movies and TV load beside it.
+    private val reelixHomeHttp: OkHttpClient = http.newBuilder().callTimeout(8, TimeUnit.SECONDS).build()
+
+    private suspend fun reelixRows(): List<ShelfRow> = coroutineScope {
+        val headers = mapOf("Referer" to Reelix.REFERER)
+        val homeCall = async(Dispatchers.IO) { runCatching { get(Reelix.SITE + "/", headers, reelixHomeHttp) } }
+        val moviesCall = async(Dispatchers.IO) { runCatching { get(Reelix.listUrl(MediaKind.MOVIE, 1), headers) } }
+        val tvCall = async(Dispatchers.IO) { runCatching { get(Reelix.listUrl(MediaKind.TV, 1), headers) } }
+        val home = homeCall.await()
+        val moviesHtml = moviesCall.await()
+        val tvHtml = tvCall.await()
+        if (moviesHtml.isFailure && tvHtml.isFailure) throw moviesHtml.exceptionOrNull()!!
         val rows = ArrayList<ShelfRow>()
-        val trending = Reelix.parseCards(home).take(24)
+        val trending = home.getOrNull()?.let { Reelix.parseCards(it).take(24) }.orEmpty()
         if (trending.isNotEmpty()) rows += ShelfRow("Trending", trending)
-        val movies = Reelix.parseCards(get(Reelix.listUrl(MediaKind.MOVIE, 1), mapOf("Referer" to Reelix.REFERER))).take(20)
+        val movies = moviesHtml.getOrNull()?.let { Reelix.parseCards(it).take(20) }.orEmpty()
         if (movies.isNotEmpty()) rows += ShelfRow("Movies", movies)
-        val tv = Reelix.parseCards(get(Reelix.listUrl(MediaKind.TV, 1), mapOf("Referer" to Reelix.REFERER))).take(20)
+        val tv = tvHtml.getOrNull()?.let { Reelix.parseCards(it).take(20) }.orEmpty()
         if (tv.isNotEmpty()) rows += ShelfRow("TV Shows", tv)
-        return rows
+        rows
     }
 
-    private fun reelixDetail(id: String, kind: MediaKind, slug: String, name: String, poster: String?): TitleDetail {
-        val html = if (slug.isNotBlank()) {
-            runCatching { get(Reelix.titleUrl(kind, slug), mapOf("Referer" to Reelix.REFERER)) }.getOrNull()
-        } else {
-            null
+    private suspend fun reelixDetail(id: String, kind: MediaKind, slug: String, name: String, poster: String?, tmdb: TmdbClient): TitleDetail = coroutineScope {
+        val pageCall = async(Dispatchers.IO) {
+            if (slug.isNotBlank()) {
+                runCatching { get(Reelix.titleUrl(kind, slug), mapOf("Referer" to Reelix.REFERER)) }.getOrNull()
+            } else {
+                null
+            }
         }
+        // Reelix ids are TMDB ids but its cards carry no release date. Ask TMDB so unreleased titles show "Coming soon".
+        // A TMDB failure only means no date.
+        val dateCall = async(Dispatchers.IO) {
+            val numeric = id.toIntOrNull()
+            if (numeric == null) {
+                null
+            } else {
+                runCatching { (if (kind == MediaKind.MOVIE) tmdb.movie(numeric) else tmdb.tv(numeric)).title.releaseDate }.getOrNull()
+            }
+        }
+        val html = pageCall.await()
+        val releaseDate = dateCall.await()
         val card = html?.let { Reelix.parseCards(it).firstOrNull { card -> card.id == id } }
-        val base = card ?: TitleCard(Library.REELIX, id, kind, name.ifBlank { "Reelix" }, poster, null, null, null, slug)
+        val base = (card ?: TitleCard(Library.REELIX, id, kind, name.ifBlank { "Reelix" }, poster, null, null, null, slug))
+            .copy(releaseDate = releaseDate)
         val overview = html?.let { HtmlText.paragraph(it, "reel-title-overview") }
         val seasons = if (kind == MediaKind.MOVIE || html == null) {
             emptyList()
@@ -325,7 +354,7 @@ object SourceCatalog {
             Reelix.seasons(html).map { SeasonBlock(it, "Season $it", emptyList()) }
         }
         val blocks = if (kind == MediaKind.MOVIE) listOf(movieBlock(base)) else seasons.ifEmpty { listOf(SeasonBlock(1, "Season 1", emptyList())) }
-        return TitleDetail(base.copy(overview = overview ?: base.overview), overview ?: base.overview.orEmpty(), blocks)
+        TitleDetail(base.copy(overview = overview ?: base.overview), overview ?: base.overview.orEmpty(), blocks)
     }
 
     private fun anisugeDetail(slug: String, name: String, poster: String?): TitleDetail {

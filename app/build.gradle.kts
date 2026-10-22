@@ -12,8 +12,8 @@ android {
         applicationId = "com.kisskh.tv"
         minSdk = 23
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.3.1"
+        versionCode = 6
+        versionName = "2.0"
     }
 
     buildTypes {
