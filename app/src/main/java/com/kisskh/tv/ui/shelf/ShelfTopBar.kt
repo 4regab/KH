@@ -2,7 +2,6 @@ package com.kisskh.tv.ui.shelf
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,11 +10,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.runtime.Composable
@@ -36,8 +33,6 @@ import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.ui.AppViewModel
 import com.kisskh.tv.ui.RootTab
 import com.kisskh.tv.ui.components.Artwork
-import com.kisskh.tv.ui.labelFor
-import com.kisskh.tv.ui.tabs
 import com.kisskh.tv.ui.shell.PhoneSearchButton
 import com.kisskh.tv.ui.shell.PhoneWordmark
 import com.kisskh.tv.ui.shell.SourceAvatar
@@ -48,8 +43,6 @@ import com.kisskh.tv.ui.theme.KhTheme
 /**
  * Phone top bar: the KH mark (or a screen [title]), the source switch and Search. It sits over the
  * Home artwork and turns solid once the page scrolls ([solid] 0..1).
- * With [showCategories] a row of chips (Movies, TV, Anime, Countries) sits under it, like Netflix's
- * mobile Home. Each chip opens that section of the current source.
  */
 @Composable
 fun ShelfTopBar(
@@ -58,7 +51,6 @@ fun ShelfTopBar(
     solid: Float,
     title: String? = null,
     showSearch: Boolean = true,
-    showCategories: Boolean = false,
 ) {
     Column(
         Modifier
@@ -92,51 +84,6 @@ fun ShelfTopBar(
             Spacer(Modifier.weight(1f))
             SourceButton(library, onClick = { vm.sourcePicker.value = true })
             if (showSearch) PhoneSearchButton(onClick = { vm.selectTab(RootTab.SEARCH) }, modifier = Modifier.padding(start = 4.dp))
-        }
-        if (showCategories) CategoryChips(library, onPick = vm::selectTab)
-    }
-}
-
-/** The library's own tabs that are categories of titles, in the library's order. */
-internal fun categoryTabs(library: Library): List<RootTab> = library.tabs().filter {
-    it == RootTab.SERIES || it == RootTab.MOVIES || it == RootTab.ANIME || it == RootTab.COUNTRIES
-}
-
-/** Rounded chips under the phone top bar. They scroll sideways when they do not fit. */
-@Composable
-private fun CategoryChips(library: Library, onPick: (RootTab) -> Unit) {
-    val tabs = categoryTabs(library)
-    if (tabs.isEmpty()) return
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(ChipRowHeight)
-            .horizontalScroll(rememberScrollState())
-            .padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        tabs.forEach { tab ->
-            val label = tab.labelFor(library)
-            KhFocusable(
-                onClick = { onPick(tab) },
-                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = label },
-                shape = KhTheme.shapes.chip,
-                scaleAndLift = false,
-            ) { focused ->
-                Text(
-                    label,
-                    style = KhTheme.typography.label,
-                    color = KhColors.TextPrimary,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(vertical = 6.dp)
-                        .background(if (focused) KhColors.Elevated else KhColors.Surface.copy(alpha = 0.85f), KhTheme.shapes.chip)
-                        .border(1.dp, KhColors.ChipOutline, KhTheme.shapes.chip)
-                        .padding(horizontal = 16.dp, vertical = 7.dp),
-                )
-            }
         }
     }
 }
