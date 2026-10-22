@@ -12,16 +12,31 @@ android {
         applicationId = "com.kisskh.tv"
         minSdk = 23
         targetSdk = 34
-        versionCode = 9
-        versionName = "3.2"
+        versionCode = 10
+        versionName = "3.3"
     }
+
+    // Reuse the established key, supplied outside git. Without it, release builds are unsigned.
+    val signingValues = listOf("KH_KEYSTORE_PATH", "KH_STORE_PASSWORD", "KH_KEY_ALIAS", "KH_KEY_PASSWORD")
+        .map { System.getenv(it) }
+    require(signingValues.all { it.isNullOrBlank() } || signingValues.all { !it.isNullOrBlank() }) {
+        "Provide all four KH signing environment variables, or none for an unsigned validation build."
+    }
+    val releaseSigning = if (signingValues.all { !it.isNullOrBlank() }) {
+        signingConfigs.create("establishedRelease") {
+            storeFile = file(signingValues[0]!!)
+            storePassword = signingValues[1]
+            keyAlias = signingValues[2]
+            keyPassword = signingValues[3]
+        }
+    } else null
 
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = releaseSigning
         }
     }
     compileOptions {
