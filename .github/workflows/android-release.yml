@@ -28,7 +28,7 @@ jobs:
       - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
       - run: bash ./gradlew clean --no-daemon
       - run: bash ./gradlew test --no-daemon
-      - run: bash ./gradlew lint --no-daemon
+      - run: bash ./gradlew lint lintRelease --no-daemon
       - run: bash ./gradlew assembleRelease --no-daemon
       - run: python3 scripts/verify-release.py app/build/outputs/apk/release/app-release-unsigned.apk --unsigned
       - uses: actions/upload-artifact@v4
