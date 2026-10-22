@@ -1,7 +1,5 @@
 package com.kisskh.tv.api
 
-import com.kisskh.tv.api.media.Library
-import com.kisskh.tv.api.media.MediaKind
 import com.kisskh.tv.api.media.TmdbPaths
 import com.kisskh.tv.api.source.OriginCountries
 import org.junit.Assert.assertEquals
@@ -41,16 +39,5 @@ class CountryFilterTest {
         assertTrue(Country.entries.all { c -> OriginCountries.all.any { it.label == c.label } })
         assertEquals("Japan", OriginCountries.byCode("jp")?.label)
         assertEquals(null, OriginCountries.byCode("XX"))
-    }
-
-    @Test fun onlyCineWaveAndCineJoyMoviesAndShowsCanFilter() {
-        for (library in listOf(Library.CINEWAVE, Library.CINEJOY)) {
-            assertTrue(OriginCountries.supported(library, MediaKind.MOVIE))
-            assertTrue(OriginCountries.supported(library, MediaKind.TV))
-            assertFalse(OriginCountries.supported(library, MediaKind.ANIME))
-        }
-        for (library in listOf(Library.REELIX, Library.ANISUGE, Library.NEXUS, Library.KISSKH)) {
-            for (kind in MediaKind.entries) assertFalse("$library $kind", OriginCountries.supported(library, kind))
-        }
     }
 }

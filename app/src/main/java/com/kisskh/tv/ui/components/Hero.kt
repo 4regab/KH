@@ -26,15 +26,11 @@ fun HeroBackdrop(url: String?, title: String?, modifier: Modifier = Modifier) {
             Artwork(url, title, Modifier.fillMaxSize(), fitPortrait = true, fadeMillis = 250, titleOnFailure = false)
             Box(Modifier.fillMaxSize().background(KhColors.Background.copy(alpha = 0.5f)))
         } else {
-            Artwork(
-                url,
-                title,
-                Modifier.align(Alignment.TopEnd).fillMaxHeight().fillMaxWidth(0.7f),
-                fitPortrait = true,
-                fadeMillis = 250,
-                titleOnFailure = false,
-            )
-            Box(Modifier.fillMaxSize().background(KhGradients.LeftFade))
+            // The fade is drawn over the art's own box, so it is solid at the art's left edge and no seam shows.
+            Box(Modifier.align(Alignment.TopEnd).fillMaxHeight().fillMaxWidth(0.7f)) {
+                Artwork(url, title, Modifier.fillMaxSize(), fitPortrait = true, fadeMillis = 250, titleOnFailure = false)
+                Box(Modifier.fillMaxSize().background(KhGradients.LeftFade))
+            }
         }
         // On a narrow screen the text sits higher over the art, so the fade reaches higher too.
         Box(

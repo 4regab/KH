@@ -1,6 +1,7 @@
 package com.kisskh.tv.ui.shelf
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,10 +35,14 @@ import com.kisskh.tv.api.source.TitleCard
 import androidx.tv.material3.Text
 import com.kisskh.tv.ui.AppViewModel
 import com.kisskh.tv.ui.components.Artwork
-import com.kisskh.tv.ui.theme.FormFactor
+import com.kisskh.tv.ui.components.KhBadge
+import com.kisskh.tv.ui.components.KhProgressBar
+import com.kisskh.tv.ui.components.isTv
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhFocusable
+import com.kisskh.tv.ui.theme.KhMotion
 import com.kisskh.tv.ui.theme.KhTheme
+import com.kisskh.tv.ui.theme.LocalReduceMotion
 
 /**
  * Card shapes. Sources that have real posters (TMDB, Reelix, Anisuge, Anime Nexus) get tall 2:3
@@ -68,6 +73,12 @@ internal fun Library.shapeHint(): CardShape = if (this == Library.KISSKH) CardSh
 
 /** Height over width of a card's artwork. */
 internal fun CardShape.ratio(): Float = if (this == CardShape.POSTER) 2f / 3f else 16f / 9f
+
+/**
+ * What makes a card the same card in a lazy list: its source, kind and id, plus the episode it
+ * resumes at. It has no list index, so a row keeps its scroll spot and animations when items move.
+ */
+internal fun TitleCard.listKey(): String = "${source.key}:$kind:$id:$resumeEpisode"
 
 /** The small tag on a started title: "Movie", "E5" (anime and KissKH) or "S1 E2". Null for any other card. */
 internal fun continueBadge(card: TitleCard): String? = when {
@@ -100,16 +111,12 @@ fun rememberTitleMark(vm: AppViewModel, card: TitleCard): TitleMark? {
 
 @Composable
 fun cardWidth(shape: CardShape): Dp {
-    val tv = KhTheme.formFactor == FormFactor.TV
+    val tv = isTv()
     return when (shape) {
         CardShape.POSTER -> if (tv) 136.dp else 112.dp
         CardShape.LANDSCAPE -> if (tv) 220.dp else 168.dp
     }
 }
-
-/** Space between cards, in rows and in grids. */
-@Composable
-fun cardGap(): Dp = if (KhTheme.formFactor == FormFactor.TV) 12.dp else 8.dp
 
 /**
  * One title in a row or grid. Every card has the same corner radius. Posters carry their own title
@@ -117,6 +124,10 @@ fun cardGap(): Dp = if (KhTheme.formFactor == FormFactor.TV) 12.dp else 8.dp
  * A started title shows a red progress bar. [badge] is a small tag over the art's top left corner:
  * by default the [continueBadge] of a started title, or e.g. the source name in all-source search.
  * [mark] adds "Coming soon" or "Not available" pills under it. The title stays open either way.
+ * [onFocused] is called when the card gains focus (the TV billboard follows it). [focusableModifier]
+ * goes on the focusable itself, ahead of its click, for `focusRequester` / `focusIfRestoring`.
+ * The picture fades in over 150 ms, a 1 dp hairline keeps dark art from melting into the page, and a
+ * press shrinks the card to 0.97 (see [KhMotion.PressScale]).
  */
 @Composable
 fun ShelfCard(
@@ -127,34 +138,44 @@ fun ShelfCard(
     caption: Boolean = shape == CardShape.LANDSCAPE,
     badge: String? = continueBadge(card),
     mark: TitleMark? = null,
+    onFocused: (() -> Unit)? = null,
+    focusableModifier: Modifier = Modifier,
 ) {
     // A poster card never shows a wide still cropped tall: without a poster it shows the title on a tile.
     val art = if (shape == CardShape.POSTER) card.poster else card.artwork
     val spoken = listOfNotNull(card.name, badge, markSpoken(mark)).joinToString(", ")
+    val fade = if (LocalReduceMotion.current) 0 else KhMotion.CardImageFadeMillis
+    val focusModifier = if (onFocused == null) Modifier else Modifier.onFocusChanged { if (it.isFocused) onFocused() }
     Column(modifier) {
         KhFocusable(
             onClick = onClick,
-            modifier = Modifier.fillMaxWidth().aspectRatio(shape.ratio()).semantics { contentDescription = spoken },
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(shape.ratio())
+                .then(focusableModifier)
+                .then(focusModifier)
+                .semantics { contentDescription = spoken },
             shape = KhTheme.shapes.art,
         ) {
             Box(Modifier.fillMaxSize()) {
-                Artwork(art, card.name, Modifier.fillMaxSize())
+                Artwork(art, card.name, Modifier.fillMaxSize(), fadeMillis = fade)
+                // A hairline inside the picture, so a dark poster does not melt into the page.
+                Box(Modifier.fillMaxSize().border(1.dp, KhColors.CardHairline, KhTheme.shapes.art))
                 val progress = card.progress
                 if (progress != null) {
                     Box(
                         Modifier
                             .align(Alignment.BottomStart)
                             .fillMaxWidth()
-                            .height(28.dp)
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))),
+                            .height(44.dp)
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, KhColors.ScrimProgress))),
                     )
-                    Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.28f)))
-                    Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(progress.coerceIn(0.02f, 1f)).height(3.dp).background(KhColors.Brand))
+                    KhProgressBar(progress, Modifier.align(Alignment.BottomStart), minFraction = 0.02f)
                 }
                 val pills = listOfNotNull(badge?.takeIf { it.isNotBlank() }) + markPills(mark)
                 if (pills.isNotEmpty()) {
                     Column(Modifier.align(Alignment.TopStart).padding(6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        pills.forEach { Badge(it) }
+                        pills.forEach { KhBadge(it) }
                     }
                 }
             }
@@ -172,19 +193,6 @@ fun ShelfCard(
     }
 }
 
-@Composable
-fun Badge(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text,
-        style = KhTheme.typography.badge,
-        color = KhColors.TextPrimary,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier
-            .background(KhColors.BadgeScrim, RoundedCornerShape(3.dp))
-            .padding(horizontal = 5.dp, vertical = 2.dp),
-    )
-}
 
 /** Grey blocks in the shape of the screen that is loading. Static: no shimmer. */
 @Composable

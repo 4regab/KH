@@ -75,9 +75,10 @@ fun KhTheme(content: @Composable () -> Unit) {
     val formFactor = rememberFormFactor()
     val isTv = formFactor == FormFactor.TV
     val compact = !isTv && LocalConfiguration.current.screenWidthDp < 600
-    val typography = remember(compact) { khTypography(if (compact) 0.85f else 1f) }
+    val typography = remember(compact, isTv) { khTypography(if (compact) 0.85f else 1f, if (isTv) 0f else PHONE_MIN_TEXT_SP) }
     val spacing = remember(isTv, compact) { khSpacing(isTv, compact) }
     val shapes = remember { KhShapes() }
+    val reduceMotion = rememberReduceMotion()
 
     MaterialTheme(
         colorScheme = khColorScheme(),
@@ -112,6 +113,7 @@ fun KhTheme(content: @Composable () -> Unit) {
             LocalKhSpacing provides spacing,
             LocalKhShapes provides shapes,
             LocalKhFocus provides KhFocusSpec(),
+            LocalReduceMotion provides reduceMotion,
             LocalContentColor provides KhColors.TextPrimary,
             LocalTextStyle provides typography.body,
             content = content,

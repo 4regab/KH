@@ -43,6 +43,46 @@ object KhColors {
 
     /** Hairline on the phone hero card: white at about 13% (#FFFFFF22). */
     val HeroBorder = Color(0x22FFFFFF)
+
+    /** Hairline inside a card's artwork, so a dark poster does not melt into the page: white at 10%. */
+    val CardHairline = Color(0x1AFFFFFF)
+
+    /** Thin line between the phone bottom bar and the page: white at 12%. */
+    val NavDivider = Color(0x1FFFFFFF)
+
+    /** Fill of the red Play button. A little deeper than [Brand] so white text on it reads at 4.5:1. */
+    val BrandFill = Color(0xFFE0182B)
+
+    /** Black at 80%: the shade under a card's progress bar. */
+    val ScrimProgress = Color.Black.copy(alpha = 0.8f)
+
+    // Shades laid over artwork. All are black at the given strength.
+
+    /** Black at 50%: the play circle over an episode still. */
+    val ScrimLight = Color.Black.copy(alpha = 0.5f)
+
+    /** Black at 55%: the round Back button and the top fade over title artwork. */
+    val ScrimMedium = Color.Black.copy(alpha = 0.55f)
+
+    /** Black at 60%: the shade at the bottom of a card, under its progress bar. */
+    val ScrimStrong = Color.Black.copy(alpha = 0.6f)
+
+    /** Black at 90%: the fade from the left edge when the TV rail is open. */
+    val ScrimRail = Color.Black.copy(alpha = 0.90f)
+
+    // Drawn on top of artwork.
+
+    /** Icons and outlines on artwork. */
+    val OnArt = Color.White
+
+    /** White at 70%: the ring around the play circle on an episode still. */
+    val OnArtBorder = Color.White.copy(alpha = 0.7f)
+
+    /** White at 28%: the unfilled part of a progress bar on artwork. */
+    val TrackOnArt = Color.White.copy(alpha = 0.28f)
+
+    /** Black behind a source's logo. */
+    val LogoTile = Color.Black
 }
 
 /** Fades that keep text readable on top of artwork. Both end in [KhColors.Background]. */

@@ -11,12 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -27,15 +24,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.kisskh.tv.api.Show
-import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhFocusable
 import com.kisskh.tv.ui.theme.KhTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 /*
  * Title cards. Two kinds, both 16:9 artwork with a 4 dp corner:
@@ -43,15 +40,8 @@ import com.kisskh.tv.ui.theme.KhTheme
  *  - ArtCard: artwork only, no title. For rows on the TV layout, where the billboard names the focused title.
  *  - TitleCard: artwork with the name under it. For phones and for grids that have no billboard.
  *
- * Size comes from the caller: `Modifier.width(KhCardSize.TvWidth)`. The height follows (16:9).
+ * Size comes from the caller (a width modifier). The height follows (16:9).
  */
-
-/** Card sizes. The TV card is 200x112 dp. The phone card is about 150x84 dp. */
-object KhCardSize {
-    val TvWidth = 200.dp
-    val TvHeight = 112.dp
-    val PhoneWidth = 150.dp
-}
 
 /** An image that takes longer than this to appear is logged ("slow"). Reading the log shows if downloads starve posters. */
 private const val SLOW_IMAGE_MS = 1_500L
@@ -174,7 +164,7 @@ fun TitleCard(
     interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
 ) {
     val title = show.title?.trim().orEmpty()
-    val tv = KhTheme.formFactor == FormFactor.TV
+    val tv = isTv()
     KhFocusable(
         onClick = onClick,
         modifier = modifier
@@ -187,8 +177,7 @@ fun TitleCard(
             Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) { CardFace(show, title, progress) }
             Text(
                 title.ifEmpty { "Untitled" },
-                fontSize = if (tv) 14.sp else 12.sp,
-                lineHeight = if (tv) 18.sp else 16.sp,
+                style = if (tv) KhTheme.typography.cardTitle else KhTheme.typography.cardTitlePhone,
                 color = KhColors.TextSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -204,23 +193,7 @@ private fun CardFace(show: Show, title: String, progress: Float?) {
     Box(Modifier.fillMaxSize()) {
         Artwork(show.thumbnail, title, Modifier.fillMaxSize())
         val badge = show.label?.trim()?.takeIf { it.isNotEmpty() }
-        if (badge != null) {
-            Text(
-                badge,
-                style = KhTheme.typography.badge,
-                color = KhColors.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(6.dp)
-                    .background(KhColors.BadgeScrim, RoundedCornerShape(3.dp))
-                    .padding(horizontal = 5.dp, vertical = 2.dp),
-            )
-        }
-        if (progress != null) {
-            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(KhColors.TextPrimary.copy(alpha = 0.3f)))
-            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(progress.coerceIn(0f, 1f)).height(3.dp).background(KhColors.Brand))
-        }
+        if (badge != null) KhBadge(badge, Modifier.align(Alignment.TopStart).padding(6.dp))
+        if (progress != null) KhProgressBar(progress, Modifier.align(Alignment.BottomStart))
     }
 }

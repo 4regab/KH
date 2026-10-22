@@ -1,13 +1,15 @@
 package com.kisskh.tv.player
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.KeyEvent
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
-import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -68,8 +70,9 @@ internal fun SniffWebView(
                 isFocusableInTouchMode = true
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                webChromeClient = WebChromeClient()
+                webChromeClient = ShieldChromeClient()
                 webViewClient = SniffClient(gate)
+                AdShield.install(this)
                 if (onKeyDown != null) {
                     setOnKeyListener { _, keyCode, event ->
                         event.action == KeyEvent.ACTION_DOWN && onKeyDown(keyCode)
@@ -104,10 +107,23 @@ internal class SniffGate {
     private val found = AtomicBoolean(false)
     private val main = Handler(Looper.getMainLooper())
 
+    /** True once the current page has finished loading. From then on the page may not move to another site. */
+    @Volatile private var settled = false
+
     fun begin(url: String) {
         started = url
         failed.set(false)
         found.set(false)
+        settled = false
+    }
+
+    /** A new page is loading (a form post, a same-site link): it gets the same grace to redirect as the first. */
+    fun pageStarted() {
+        settled = false
+    }
+
+    fun pageFinished() {
+        settled = true
     }
 
     fun fail() {
@@ -122,22 +138,42 @@ internal class SniffGate {
         main.post { onStream(stream) }
     }
 
-    fun navigate(url: String, mainFrame: Boolean): Boolean = when (EmbedPolicy.decide(url, mainFrame)) {
-        EmbedNav.ALLOW -> false
-        EmbedNav.BLOCK -> true
-        EmbedNav.FAIL -> {
-            fail()
-            true
+    fun navigate(currentUrl: String?, url: String, mainFrame: Boolean, redirect: Boolean): Boolean {
+        // A settled page (ad script, popup) tried to take over the page: stay on it.
+        if (mainFrame && EmbedPolicy.hijack(currentUrl, url, settled, redirect)) {
+            Log.w(TAG, "blocked a move to another site: ${Uri.parse(url).host}")
+            return true
+        }
+        return when (EmbedPolicy.decide(url, mainFrame)) {
+            EmbedNav.ALLOW -> false
+            EmbedNav.BLOCK -> {
+                Log.w(TAG, "blocked a navigation: ${Uri.parse(url).scheme}://${Uri.parse(url).host}")
+                true
+            }
+            EmbedNav.FAIL -> {
+                fail()
+                true
+            }
         }
     }
 }
 
 private class SniffClient(private val gate: SniffGate) : WebViewClient() {
-    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-        gate.navigate(request.url?.toString().orEmpty(), request.isForMainFrame)
+    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        val redirect = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && request.isRedirect
+        return gate.navigate(view.url, request.url?.toString().orEmpty(), request.isForMainFrame, redirect)
+    }
 
     @Deprecated("Kept for API 23")
-    override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean = gate.navigate(url, true)
+    override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean = gate.navigate(view.url, url, true, redirect = false)
+
+    override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+        gate.pageStarted()
+    }
+
+    override fun onPageFinished(view: WebView, url: String?) {
+        gate.pageFinished()
+    }
 
     // A redirect to a new domain (vidfast.pro -> vidfast.vc) is still the page, so any main-frame
     // error counts. Before, errors after a cross-domain redirect were ignored and left a black page.
@@ -170,3 +206,5 @@ private class SniffClient(private val gate: SniffGate) : WebViewClient() {
 
 internal const val WEB_USER_AGENT =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+
+private const val TAG = "KhSniffWebView"

@@ -25,7 +25,7 @@ import com.kisskh.tv.ui.components.RegisterFocusSaver
 import com.kisskh.tv.ui.components.focusIfRestoring
 import com.kisskh.tv.ui.components.rememberAutoFocusAllowed
 import com.kisskh.tv.ui.components.rememberFocusRestore
-import com.kisskh.tv.ui.components.screenStart
+import com.kisskh.tv.ui.components.edge
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhTheme
 import kotlinx.coroutines.delay
@@ -55,7 +55,7 @@ fun TokenScreen(vm: AppViewModel) {
         }
     }
     Column(
-        Modifier.fillMaxSize().padding(start = screenStart(), end = 32.dp, top = 24.dp),
+        Modifier.fillMaxSize().padding(start = edge(), end = 32.dp, top = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("Febbox token", style = KhTheme.typography.heading, color = KhColors.TextPrimary)

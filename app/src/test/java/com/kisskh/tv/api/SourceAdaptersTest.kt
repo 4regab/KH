@@ -205,6 +205,7 @@ class SourceAdaptersTest {
             listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES, RootTab.ANIME, RootTab.MINE),
             Library.REELIX.tabs(),
         )
+        assertEquals(Library.REELIX.tabs(), Library.CINEJOY.tabs())
         assertEquals(listOf(RootTab.HOME, RootTab.SEARCH, RootTab.ANIME, RootTab.MINE), Library.ANISUGE.tabs())
         assertEquals(Library.NEXUS.tabs(), Library.ANISUGE.tabs())
         val home = NavState(library = Library.ANISUGE)

@@ -17,11 +17,13 @@ import com.kisskh.tv.api.media.MediaKind
 import com.kisskh.tv.api.media.SubFetcher
 import com.kisskh.tv.api.media.SubLists
 import com.kisskh.tv.api.media.TmdbClient
+import com.kisskh.tv.api.media.TmdbTitleDetails
 import com.kisskh.tv.api.media.TmdbPaths
 import com.kisskh.tv.api.media.TmdbTitle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -79,46 +81,62 @@ object SourceCatalog {
     }
 
     /**
-     * One page of a Movies / TV / Anime grid. [country] (an ISO code, see [OriginCountries]) only
-     * applies to CineWave and CineJoy movies and TV; every other grid ignores it.
+     * One page of a Movies / TV / Anime grid with [filters] applied. What each grid can filter is
+     * listed in [SourceFilters]; anything it cannot filter on is dropped first, so a stray value never
+     * changes the list. With nothing set the list is the source's own default.
      */
-    suspend fun browse(library: Library, kind: MediaKind, page: Int, repo: Repository, tmdb: TmdbClient, country: String? = null): ShelfPage = when (library) {
-        Library.KISSKH -> {
-            val query = CatalogQuery(type = kind.toContent())
-            val list = repo.list(query, page, 40)
-            val size = list.pageSize.coerceAtLeast(1)
-            ShelfPage(list.data.map { it.card(kind) }, page, page * size < list.totalCount)
-        }
-        Library.CINEWAVE, Library.CINEJOY -> {
-            val today = TmdbPaths.todayUtc()
-            val result = when (kind) {
-                // ponytail: anime stays unfiltered, its list is picked by a TMDB keyword, not by country.
-                MediaKind.ANIME -> tmdb.anime(page)
-                MediaKind.MOVIE -> tmdb.discover("movie", false, page, today, country)
-                MediaKind.TV -> tmdb.discover("tv", false, page, today, country)
+    suspend fun browse(
+        library: Library,
+        kind: MediaKind,
+        page: Int,
+        repo: Repository,
+        tmdb: TmdbClient,
+        filters: BrowseFilters = BrowseFilters(),
+    ): ShelfPage {
+        val f = SourceFilters.normalize(library, kind, filters)
+        return when (library) {
+            Library.KISSKH -> {
+                val list = repo.list(SourceFilters.kissQuery(kind, f), page, 40)
+                val size = list.pageSize.coerceAtLeast(1)
+                ShelfPage(list.data.map { it.card(kind) }, page, page * size < list.totalCount)
             }
-            ShelfPage(result.items.map { it.card(library, kind) }, result.page, result.page < result.totalPages)
-        }
-        Library.REELIX -> {
-            val html = get(Reelix.listUrl(kind, page), mapOf("Referer" to Reelix.REFERER))
-            ShelfPage(Reelix.parseCards(html), page, Reelix.hasNextPage(html, page))
-        }
-        Library.ANISUGE -> {
-            val html = get(Anisuge.SITE + "/home", mapOf("Referer" to Anisuge.REFERER))
-            val items = Anisuge.parsePosters(html)
-            ShelfPage(items, 1, false)
-        }
-        Library.NEXUS -> {
-            val json = get(Nexus.latestUrl(page), Nexus.headers())
-            val items = Nexus.parseList(json)
-            if (items.isEmpty() && page == 1) {
-                ShelfPage(Nexus.parseList(get(Nexus.popularUrl("week", 24), Nexus.headers())), 1, false)
-            } else {
-                ShelfPage(items, page, page < Nexus.lastPage(json))
+            Library.CINEWAVE, Library.CINEJOY -> tmdbBrowse(library, kind, page, tmdb, f)
+            Library.REELIX -> {
+                if (SourceFilters.capabilities(library, kind).isDefault(f)) {
+                    // No filter set: the site's own list, exactly as before.
+                    val html = get(Reelix.listUrl(kind, page), mapOf("Referer" to Reelix.REFERER))
+                    ShelfPage(Reelix.parseCards(html), page, Reelix.hasNextPage(html, page))
+                } else {
+                    // Reelix ids are TMDB ids, so a filtered grid is a TMDB list shown as Reelix cards.
+                    tmdbBrowse(library, kind, page, tmdb, f)
+                }
+            }
+            Library.ANISUGE -> {
+                val html = get(
+                    Anisuge.filterUrl(page, f.sort, f.genre, f.year, f.status),
+                    mapOf("Referer" to Anisuge.REFERER),
+                )
+                ShelfPage(Anisuge.parsePosters(html), page, Anisuge.hasNextPage(html, page))
+            }
+            Library.NEXUS -> {
+                val json = get(Nexus.showsUrl(page, f.sort, f.genre, f.status), Nexus.headers())
+                ShelfPage(Nexus.parseList(json), page, page < Nexus.lastPage(json))
             }
         }
     }
 
+    /** A TMDB discover page as cards of [library]. Anime is CineWave's anime query with the same filters added. */
+    private fun tmdbBrowse(library: Library, kind: MediaKind, page: Int, tmdb: TmdbClient, f: BrowseFilters): ShelfPage {
+        val order = SourceFilters.tmdbOrder(f.sort)
+        val result = when (kind) {
+            MediaKind.ANIME -> tmdb.anime(page, f.genre, f.year, order)
+            MediaKind.MOVIE -> tmdb.discover("movie", false, page, TmdbPaths.todayUtc(), f.country, f.genre, f.year, order)
+            MediaKind.TV -> tmdb.discover("tv", false, page, TmdbPaths.todayUtc(), f.country, f.genre, f.year, order)
+        }
+        // Reelix has no anime kind on its cards: its anime are TV records.
+        val shown = if (library == Library.REELIX && kind == MediaKind.ANIME) MediaKind.TV else kind
+        return ShelfPage(result.items.map { it.card(library, shown) }, result.page, result.page < result.totalPages)
+    }
     suspend fun search(library: Library, query: String, repo: Repository, tmdb: TmdbClient): List<TitleCard> {
         val q = query.trim()
         if (q.isEmpty()) return emptyList()
@@ -147,7 +165,16 @@ object SourceCatalog {
 
     fun episodes(library: Library, id: String, season: Int, tmdb: TmdbClient): List<EpisodeRef> = when (library) {
         Library.CINEWAVE, Library.CINEJOY -> tmdb.season(id.toInt(), season).map { ep ->
-            EpisodeRef(ep.number.toString(), season, ep.number, ep.name, ep.still)
+            EpisodeRef(
+                id = ep.number.toString(),
+                season = season,
+                number = ep.number,
+                name = ep.name,
+                still = ep.still,
+                airDate = ep.airDate,
+                overview = ep.overview.ifBlank { null },
+                runtimeMinutes = ep.runtime,
+            )
         }
         Library.REELIX -> Reelix.parseSeason(
             get(Reelix.seasonUrl(id, season), mapOf("Referer" to Reelix.REFERER, "Accept" to "application/json")),
@@ -324,29 +351,37 @@ object SourceCatalog {
         rows
     }
 
-    private suspend fun reelixDetail(id: String, kind: MediaKind, slug: String, name: String, poster: String?, tmdb: TmdbClient): TitleDetail = coroutineScope {
-        val pageCall = async(Dispatchers.IO) {
-            if (slug.isNotBlank()) {
-                runCatching { get(Reelix.titleUrl(kind, slug), mapOf("Referer" to Reelix.REFERER)) }.getOrNull()
-            } else {
-                null
-            }
+    /**
+     * Reelix detail. Ids are TMDB ids, so TMDB gives everything (overview, art, seasons, cast...) and the title
+     * needs no slug. Episodes still come from Reelix by id. Only if TMDB fails is the Reelix title page read
+     * (it needs the slug), as it was before.
+     */
+    private suspend fun reelixDetail(id: String, kind: MediaKind, slug: String, name: String, poster: String?, tmdb: TmdbClient): TitleDetail {
+        val numeric = id.toIntOrNull()
+        val details = numeric?.let { n ->
+            withContext(Dispatchers.IO) { runCatching { if (kind == MediaKind.MOVIE) tmdb.movie(n) else tmdb.tv(n) }.getOrNull() }
         }
-        // Reelix ids are TMDB ids but its cards carry no release date. Ask TMDB so unreleased titles show "Coming soon".
-        // A TMDB failure only means no date.
-        val dateCall = async(Dispatchers.IO) {
-            val numeric = id.toIntOrNull()
-            if (numeric == null) {
-                null
-            } else {
-                runCatching { (if (kind == MediaKind.MOVIE) tmdb.movie(numeric) else tmdb.tv(numeric)).title.releaseDate }.getOrNull()
-            }
+        if (details == null) return reelixPageDetail(id, kind, slug, name, poster)
+        val shown = if (kind == MediaKind.MOVIE) MediaKind.MOVIE else MediaKind.TV
+        val card = details.title.card(Library.REELIX, shown).copy(slug = slug)
+        val blocks = if (shown == MediaKind.MOVIE) {
+            listOf(movieBlock(card))
+        } else {
+            // Season 0 (specials) is skipped: Reelix's own title page never lists it.
+            details.seasons.filter { it.number > 0 }.map { SeasonBlock(it.number, it.name, emptyList()) }
+                .ifEmpty { listOf(SeasonBlock(1, "Season 1", emptyList())) }
         }
-        val html = pageCall.await()
-        val releaseDate = dateCall.await()
+        return details.toDetail(Library.REELIX, card, blocks)
+    }
+
+    private suspend fun reelixPageDetail(id: String, kind: MediaKind, slug: String, name: String, poster: String?): TitleDetail {
+        val html = if (slug.isNotBlank()) {
+            withContext(Dispatchers.IO) { runCatching { get(Reelix.titleUrl(kind, slug), mapOf("Referer" to Reelix.REFERER)) }.getOrNull() }
+        } else {
+            null
+        }
         val card = html?.let { Reelix.parseCards(it).firstOrNull { card -> card.id == id } }
-        val base = (card ?: TitleCard(Library.REELIX, id, kind, name.ifBlank { "Reelix" }, poster, null, null, null, slug))
-            .copy(releaseDate = releaseDate)
+        val base = card ?: TitleCard(Library.REELIX, id, kind, name.ifBlank { "Reelix" }, poster, null, null, null, slug)
         val overview = html?.let { HtmlText.paragraph(it, "reel-title-overview") }
         val seasons = if (kind == MediaKind.MOVIE || html == null) {
             emptyList()
@@ -354,9 +389,8 @@ object SourceCatalog {
             Reelix.seasons(html).map { SeasonBlock(it, "Season $it", emptyList()) }
         }
         val blocks = if (kind == MediaKind.MOVIE) listOf(movieBlock(base)) else seasons.ifEmpty { listOf(SeasonBlock(1, "Season 1", emptyList())) }
-        TitleDetail(base.copy(overview = overview ?: base.overview), overview ?: base.overview.orEmpty(), blocks)
+        return TitleDetail(base.copy(overview = overview ?: base.overview), overview ?: base.overview.orEmpty(), blocks)
     }
-
     private fun anisugeDetail(slug: String, name: String, poster: String?): TitleDetail {
         val html = get(Anisuge.showUrl(slug), mapOf("Referer" to Anisuge.REFERER))
         val manga = Anisuge.mangaId(html) ?: error("This title has no episode list.")
@@ -367,25 +401,57 @@ object SourceCatalog {
         )
         val episodes = Anisuge.parseEpisodes(jsonResult(list))
         // The show page has its own poster. It beats the tapped card's picture, which may be a wide banner.
-        val card = TitleCard(Library.ANISUGE, slug, MediaKind.ANIME, title, Anisuge.showPoster(html) ?: poster, null, null, null, slug)
-        return TitleDetail(card, "", listOf(SeasonBlock(1, "Episodes", episodes)))
+        val info = Anisuge.parseShowInfo(html)
+        val card = TitleCard(
+            Library.ANISUGE, slug, MediaKind.ANIME, title, Anisuge.showPoster(html) ?: poster,
+            info.backdrop, info.year, info.overview, slug,
+        )
+        return TitleDetail(
+            card = card,
+            description = info.overview.orEmpty(),
+            seasons = listOf(SeasonBlock(1, "Episodes", episodes)),
+            certification = info.certification,
+            backdrop = info.backdrop,
+            genres = info.genres,
+            runtimeMinutes = info.runtimeMinutes,
+            year = info.year,
+            rating = info.score,
+            status = info.status,
+        )
     }
+
+    /**
+     * Nexus gives episodes by page, 100 at a time at most. ponytail: 40 pages is the ceiling (up to 4,000
+     * episodes, far past the longest series), kept low because the API's firewall blocks a fast burst.
+     */
+    private const val NEXUS_EPISODE_PAGES = 40
 
     private fun nexusDetail(id: String, slug: String, name: String, poster: String?): TitleDetail {
         val episodes = ArrayList<EpisodeRef>()
         var page = 1
         var last = 1
-        while (page <= last && page <= 8) {
+        while (page <= last && page <= NEXUS_EPISODE_PAGES) {
             val json = get(Nexus.episodesUrl(id, page), Nexus.headers())
             episodes += Nexus.parseEpisodes(json)
             last = Nexus.lastPage(json)
             page++
         }
-        // ponytail: the tapped card's picture is all Nexus detail gets; the episodes call has no show art.
-        val card = TitleCard(Library.NEXUS, id, MediaKind.ANIME, name.ifBlank { "Anime" }, poster, null, null, null, slug)
-        return TitleDetail(card, "", listOf(SeasonBlock(1, "Episodes", episodes)))
+        // The episodes call has no show data, so ask the catalog for the show by name. A miss only means a bare page.
+        val info = runCatching { Nexus.parseShowInfo(get(Nexus.showUrl(name), Nexus.headers()), id) }.getOrNull()
+        val card = TitleCard(
+            Library.NEXUS, id, MediaKind.ANIME, name.ifBlank { "Anime" }, poster, info?.backdrop, info?.year, info?.overview, slug,
+        )
+        return TitleDetail(
+            card = card,
+            description = info?.overview.orEmpty(),
+            seasons = listOf(SeasonBlock(1, "Episodes", episodes)),
+            certification = info?.certification,
+            backdrop = info?.backdrop,
+            genres = info?.genres.orEmpty(),
+            year = info?.year,
+            status = info?.status,
+        )
     }
-
     private fun tmdbDetail(library: Library, id: String, kind: MediaKind, tmdb: TmdbClient): TitleDetail {
         val numeric = id.toInt()
         val details = if (kind == MediaKind.MOVIE) tmdb.movie(numeric) else tmdb.tv(numeric)
@@ -395,8 +461,25 @@ object SourceCatalog {
         } else {
             details.seasons.map { SeasonBlock(it.number, it.name.ifBlank { "Season ${it.number}" }, emptyList()) }
         }
-        return TitleDetail(card, card.overview.orEmpty(), blocks, details.certification)
+        return details.toDetail(library, card, blocks)
     }
+
+    /** Every TMDB field a detail page shows. Recommendations become cards of the same [library]. */
+    internal fun TmdbTitleDetails.toDetail(library: Library, card: TitleCard, seasons: List<SeasonBlock>) = TitleDetail(
+        card = card,
+        description = card.overview.orEmpty(),
+        seasons = seasons,
+        certification = certification,
+        backdrop = title.backdrop,
+        logo = logo,
+        tagline = tagline,
+        genres = genres,
+        runtimeMinutes = runtime ?: episodeRuntime,
+        year = title.year,
+        rating = title.vote?.takeIf { it > 0 },
+        cast = castMembers.map { CastMember(it.name, it.character, it.photo) },
+        recommendations = recommendations.map { it.card(library) },
+    )
 
     private suspend fun kissHome(repo: Repository): List<ShelfRow> {
         val rows = ArrayList<ShelfRow>()
@@ -447,7 +530,7 @@ object SourceCatalog {
             )
         }
         val blocks = if (episodes.isEmpty() && movie) listOf(movieBlock(card)) else listOf(SeasonBlock(1, "Episodes", episodes))
-        return TitleDetail(card, drama.description.orEmpty(), blocks)
+        return TitleDetail(card, drama.description.orEmpty(), blocks, year = card.year, country = drama.country, status = drama.status)
     }
 
     private fun movieBlock(card: TitleCard) = SeasonBlock(
@@ -466,7 +549,7 @@ private suspend fun <T> catching(block: suspend () -> T): T? = try {
     null
 }
 
-private fun MediaKind.toContent(): ContentType = when (this) {
+internal fun MediaKind.toContent(): ContentType = when (this) {
     MediaKind.MOVIE -> ContentType.MOVIE
     MediaKind.ANIME -> ContentType.ANIME
     MediaKind.TV -> ContentType.SERIES
@@ -484,7 +567,7 @@ private fun Show.card(kind: MediaKind) = TitleCard(
     meta = label,
 )
 
-private fun TmdbTitle.card(library: Library, forced: MediaKind? = null): TitleCard {
+internal fun TmdbTitle.card(library: Library, forced: MediaKind? = null): TitleCard {
     val kind = forced ?: if (mediaType == "tv") MediaKind.TV else MediaKind.MOVIE
     return TitleCard(
         source = library,

@@ -89,7 +89,7 @@ fun SourceAvatar(library: Library, size: Dp, modifier: Modifier = Modifier) {
         modifier
             .size(size)
             .clip(shape)
-            .background(Color.Black),
+            .background(KhColors.LogoTile),
         contentAlignment = Alignment.Center,
     ) {
         Image(

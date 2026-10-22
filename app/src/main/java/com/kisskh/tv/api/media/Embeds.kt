@@ -249,7 +249,31 @@ object EmbedPolicy {
         "exdynsrv.com",
         "tsyndicate.com",
         "clickaine.com",
+        // Seen in multiembed.mov's ad tag (it picks one at random from a base64 list), and other pop / overlay networks.
+        // ponytail: a fixed list. These networks rotate domains, so AdShield's page script does the real work.
+        "cdn4ads.com",
+        "daqsvmdrgchu.com",
+        "pkvjquvxvbd.com",
+        "d3g5ovfngjw9bw.cloudfront.net",
+        "llvpn.com",
+        "a-ads.com",
+        "acscdn.com",
+        "realsrv.com",
+        "adsco.re",
+        "pubfuturead.com",
+        "highperformanceformat.com",
+        "profitablecpmrate.com",
+        "effectiveratecpm.com",
+        "monetag.com",
+        "rtmark.net",
+        "admaven.com",
+        "ad-maven.com",
+        "bvtpk.com",
+        "adexchangeclear.com",
     )
+
+    /** The blocked hosts, for the page script that spots ad frames and links. */
+    val adHosts: List<String> get() = blocked
 
     fun blocked(host: String): Boolean {
         val h = host.lowercase().trim('.')
@@ -257,12 +281,14 @@ object EmbedPolicy {
     }
 
     /**
-     * True when a tap moved the whole page to another site. Embed players hide ads under their play
-     * button: the tap that should start the video opens an ad page instead (sometimes an adult one).
-     * Server redirects, and moves within the same site (www.a.com to cdn.a.com), are not counted.
+     * True when the page tried to move itself to another site after it had settled ([settled] is true once
+     * the page has finished loading). Embed players hide ads under their play button, and ad scripts open
+     * pages with `window.open` or `location`. Before the page finishes, a move to a mirror (vidfast.pro to
+     * vidfast.vc) is still the player. Server redirects, and moves within the same site (www.a.com to
+     * cdn.a.com), are not counted.
      */
-    fun hijack(currentUrl: String?, targetUrl: String, afterTap: Boolean, redirect: Boolean): Boolean {
-        if (!afterTap || redirect) return false
+    fun hijack(currentUrl: String?, targetUrl: String, settled: Boolean, redirect: Boolean): Boolean {
+        if (!settled || redirect) return false
         val from = site(currentUrl) ?: return false
         val to = site(targetUrl) ?: return false
         return from != to

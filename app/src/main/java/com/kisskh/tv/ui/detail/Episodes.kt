@@ -37,14 +37,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.kisskh.tv.api.Episode
 import com.kisskh.tv.ui.EpisodeRange
+import com.kisskh.tv.ui.components.KhProgressBar
 import com.kisskh.tv.ui.components.formatEpisodeNumber
 import com.kisskh.tv.ui.components.formatPosition
 import com.kisskh.tv.ui.theme.KhColors
@@ -92,9 +91,8 @@ fun EpisodeRow(
         ) {
             Text(
                 number,
+                style = KhTheme.typography.episodeNumber,
                 color = color,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 modifier = Modifier.width(72.dp),
@@ -103,7 +101,7 @@ fun EpisodeRow(
                 Text(name, style = KhTheme.typography.label, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 when {
                     unavailable -> Text("Not released yet", style = KhTheme.typography.caption, color = KhColors.TextSecondary)
-                    progress != null -> ProgressBar(progress)
+                    progress != null -> KhProgressBar(progress, Modifier.padding(top = 6.dp))
                     positionMs > 0L -> Text(
                         "At ${formatPosition(positionMs)}",
                         style = KhTheme.typography.caption,
@@ -112,24 +110,6 @@ fun EpisodeRow(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ProgressBar(progress: Float) {
-    Box(
-        Modifier
-            .padding(top = 6.dp)
-            .fillMaxWidth()
-            .height(3.dp)
-            .background(KhColors.TextPrimary.copy(alpha = 0.25f)),
-    ) {
-        Box(
-            Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(progress.coerceIn(0f, 1f))
-                .background(KhColors.Brand),
-        )
     }
 }
 

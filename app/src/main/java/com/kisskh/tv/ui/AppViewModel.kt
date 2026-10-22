@@ -428,14 +428,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setMediaSort(latest: Boolean) {
-        _nav.update { state ->
-            state.updateCurrent { current ->
-                if (current is Dest.MediaBrowse) current.withSort(latest) else current
-            }
-        }
-    }
-
     private fun stopIfPlaying(dest: Dest) {
         if (dest is Dest.Player) stopPlayback()
         if (dest is Dest.StreamPlayer) media.cancelStream()

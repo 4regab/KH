@@ -54,7 +54,7 @@ fun rememberKhFocusProgress(focused: Boolean, spec: KhFocusSpec = KhTheme.focus)
         label = "khFocus",
     )
 
-/** 0 when not pressed, 1 while pressed (finger down or OK key down). Drives the 0.96 press scale. */
+/** 0 when not pressed, 1 while pressed (finger down or OK key down). Drives the [KhMotion.PressScale] press scale. */
 @Composable
 fun rememberKhPressProgress(pressed: Boolean): State<Float> =
     animateFloatAsState(
@@ -130,7 +130,7 @@ fun KhFocusable(
     val pressed by interactionSource.collectIsPressedAsState()
     val progress = rememberKhFocusProgress(focused)
     val press = rememberKhPressProgress(pressed)
-    val spec = KhTheme.focus
+    val spec = KhTheme.focus.let { if (LocalReduceMotion.current) it.copy(scale = 1f) else it } // no zoom with "Remove animations"
     Box(
         modifier = modifier
             .zIndex(if (focused) 1f else 0f)

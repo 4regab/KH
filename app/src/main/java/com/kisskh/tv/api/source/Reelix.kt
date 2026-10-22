@@ -173,12 +173,18 @@ object Reelix {
         var number = 0
         var name = ""
         var still: String? = null
+        var overview = ""
+        var runtime = 0
+        var airDate = ""
         reader.beginObject()
         while (reader.hasNext()) {
             when (reader.nextName()) {
                 "number" -> number = reader.readLoose().toIntOrNull() ?: 0
                 "title", "name" -> if (name.isBlank()) name = reader.nextStringOrEmpty() else reader.skipValue()
                 "still" -> still = reader.nextStringOrEmpty().ifBlank { null }
+                "overview" -> overview = reader.nextStringOrEmpty()
+                "runtime" -> runtime = reader.readLoose().toIntOrNull() ?: 0
+                "airDate" -> airDate = reader.nextStringOrEmpty()
                 else -> reader.skipValue()
             }
         }
@@ -189,6 +195,9 @@ object Reelix {
             number = number,
             name = name.ifBlank { "Episode $number" },
             still = still,
+            airDate = airDate.takeIf { it.length == 10 },
+            overview = overview.ifBlank { null },
+            runtimeMinutes = runtime.takeIf { it > 0 },
         )
     }
 

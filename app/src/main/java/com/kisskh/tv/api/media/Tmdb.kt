@@ -35,35 +35,88 @@ object TmdbPaths {
         "/tv/$id?append_to_response=content_ratings,credits,recommendations,external_ids,images&include_image_language=en,null"
     fun season(id: Int, number: Int) = "/tv/$id/season/$number"
 
-    /** CineWave's anime row, including the page the site fixes at 1. */
-    fun anime(page: Int = 1) =
-        "/discover/tv?with_genres=16&with_keywords=210024&sort_by=popularity.desc" +
+    /** The three list orders a grid can ask TMDB for. */
+    enum class Order { POPULAR, TOP_RATED, NEWEST }
+
+    /** Fewest votes a title needs to enter a Top rated list, so one 10/10 vote cannot rank first. */
+    const val TOP_RATED_MIN_VOTES = 200
+
+    /** The picture sizes the app shows. TMDB's `original` is never used on screen. */
+    const val POSTER = "w342"
+    const val BACKDROP = "w1280"
+    const val STILL = "w300"
+    const val LOGO = "w500"
+    const val PROFILE = "w185"
+
+    /**
+     * CineWave's anime row, including the page the site fixes at 1.
+     * [genre] (a TMDB TV genre id) narrows it further: `with_genres=16,<id>` means Animation AND that genre.
+     * [year] is the first-air year. [order] defaults to the site's own popularity order. Newest stops at [today]
+     * so shows that have not started do not flood the list.
+     */
+    fun anime(
+        page: Int = 1,
+        genre: String? = null,
+        year: Int? = null,
+        order: Order = Order.POPULAR,
+        today: String = todayUtc(),
+    ): String {
+        val genres = "16" + (digits(genre)?.let { ",$it" } ?: "")
+        val sort = when (order) {
+            Order.POPULAR -> "popularity.desc"
+            Order.TOP_RATED -> "vote_average.desc&vote_count.gte=$TOP_RATED_MIN_VOTES"
+            Order.NEWEST -> "first_air_date.desc&first_air_date.lte=$today&vote_count.gte=5"
+        }
+        return "/discover/tv?with_genres=$genres&with_keywords=210024&sort_by=$sort" +
             "&include_adult=false&without_genres=10749&certification_country=US" +
-            "&certification.lte=TV-MA&page=$page"
+            "&certification.lte=TV-MA" + (validYear(year)?.let { "&first_air_date_year=$it" } ?: "") + "&page=$page"
+    }
 
     /**
      * CineWave's discover helper. Latest is the release date descending, not after today, with at
      * least five votes. Anything else is popularity. [page] is added so a grid can continue.
      * [country] is an ISO 3166-1 code (KR, JP, ...) that keeps only titles made in that country.
      * It is left out when null or not two letters, so a bad value never narrows the list to nothing.
+     *
+     * [genre] is a TMDB genre id (movie and TV ids differ), [year] the release year, and [order] picks
+     * Popular, Top rated (at least [TOP_RATED_MIN_VOTES] votes) or Newest (same as [latest]).
+     * A bad genre or year is left out the same way as a bad country.
      */
-    fun discover(kind: String, latest: Boolean, page: Int, today: String, country: String? = null): String {
-        val base = if (latest) {
-            val field = if (kind == "movie") "primary_release_date" else "first_air_date"
-            "/discover/$kind?sort_by=$field.desc&$field.lte=$today&vote_count.gte=5&include_null_first_air_dates=false"
-        } else {
-            "/discover/$kind?sort_by=popularity.desc"
+    fun discover(
+        kind: String,
+        latest: Boolean,
+        page: Int,
+        today: String,
+        country: String? = null,
+        genre: String? = null,
+        year: Int? = null,
+        order: Order = Order.POPULAR,
+    ): String {
+        val field = if (kind == "movie") "primary_release_date" else "first_air_date"
+        val base = when {
+            latest || order == Order.NEWEST ->
+                "/discover/$kind?sort_by=$field.desc&$field.lte=$today&vote_count.gte=5&include_null_first_air_dates=false"
+            order == Order.TOP_RATED -> "/discover/$kind?sort_by=vote_average.desc&vote_count.gte=$TOP_RATED_MIN_VOTES"
+            else -> "/discover/$kind?sort_by=popularity.desc"
         }
         val origin = country?.trim()?.uppercase()?.takeIf { it.length == 2 && it.all(Char::isLetter) }
-        return base + (if (origin != null) "&with_origin_country=$origin" else "") + "&page=$page"
+        val yearField = if (kind == "movie") "primary_release_year" else "first_air_date_year"
+        return base +
+            (if (origin != null) "&with_origin_country=$origin" else "") +
+            (digits(genre)?.let { "&with_genres=$it" } ?: "") +
+            (validYear(year)?.let { "&$yearField=$it" } ?: "") +
+            "&page=$page"
     }
 
+    private fun digits(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() && it.all(Char::isDigit) }
+
+    private fun validYear(year: Int?): Int? = year?.takeIf { it in 1870..2100 }
     fun withKey(path: String): String {
         val join = if ('?' in path) "&" else "?"
         return "$API$path${join}api_key=$KEY"
     }
 
-    /** `w500` posters, `w780` backdrops, `w300` episode stills. Null when TMDB has no file. */
+    /** A picture URL at one of the sizes above ([POSTER], [BACKDROP], [STILL], [LOGO], [PROFILE]). Null when TMDB has no file. */
     fun image(path: String?, size: String): String? {
         if (path.isNullOrBlank()) return null
         if (path.startsWith("http://") || path.startsWith("https://")) return path
@@ -97,8 +150,8 @@ data class TmdbTitle(
     /** 16:9 art. Backdrop first, poster when that is missing. */
     val artwork: String? get() = backdrop ?: poster
 
-    /** Full-screen art: the backdrop at 1280 px wide, so a 1080p screen does not show a blurry upscale. */
-    val hero: String? get() = backdrop?.replace("/w780/", "/w1280/") ?: poster
+    /** Full-screen art. Backdrops are already 1280 px wide, so a 1080p screen does not show a blurry upscale. */
+    val hero: String? get() = backdrop ?: poster
 
     fun voteText(): String? = vote?.takeIf { it > 0 }?.let { java.lang.String.format(java.util.Locale.US, "%.1f", it) }
 }
@@ -134,7 +187,17 @@ data class TmdbTitleDetails(
     /** The English (or textless) title logo, transparent PNG. */
     val logo: String? = null,
     val tagline: String? = null,
-)
+    /** The first [CAST_LIMIT] billed cast with their role and a w185 photo. */
+    val castMembers: List<TmdbCastMember> = emptyList(),
+    /** A TV show's typical episode length in minutes (`episode_run_time`, else the last aired episode). */
+    val episodeRuntime: Int? = null,
+) {
+    companion object {
+        const val CAST_LIMIT = 12
+    }
+}
+
+data class TmdbCastMember(val name: String, val character: String?, val photo: String?)
 
 data class TmdbPage(val items: List<TmdbTitle>, val page: Int, val totalPages: Int)
 
@@ -172,9 +235,11 @@ object TmdbJson {
             var certification: String? = null
             var genres = emptyList<String>()
             var runtime: Int? = null
-            var cast = emptyList<String>()
+            var cast = emptyList<TmdbCastMember>()
             var logo: String? = null
             var tagline: String? = null
+            var episodeRuntime: Int? = null
+            var lastEpisodeRuntime: Int? = null
             reader.obj {
                 when (val name = reader.nextName()) {
                     "id" -> id = reader.intOrNull()
@@ -193,9 +258,11 @@ object TmdbJson {
                     "content_ratings" -> certification = reader.usContentRating() ?: certification
                     "genres" -> genres = reader.names("name")
                     "runtime" -> runtime = reader.intOrNull()?.takeIf { it > 0 }
-                    "credits" -> cast = reader.castNames()
+                    "credits" -> cast = reader.castMembers()
                     "images" -> logo = reader.firstLogo()
                     "tagline" -> tagline = reader.stringOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+                    "episode_run_time" -> episodeRuntime = reader.firstInt()
+                    "last_episode_to_air" -> lastEpisodeRuntime = reader.runtimeOf()
                     else -> {
                         if (name == "status_message") throw IllegalStateException(reader.nextString())
                         reader.skipValue()
@@ -213,8 +280,8 @@ object TmdbJson {
                     mediaType = type,
                     name = shown,
                     overview = overview,
-                    poster = TmdbPaths.image(poster, "w500"),
-                    backdrop = TmdbPaths.image(backdrop, "w780"),
+                    poster = TmdbPaths.image(poster, TmdbPaths.POSTER),
+                    backdrop = TmdbPaths.image(backdrop, TmdbPaths.BACKDROP),
                     vote = vote,
                     year = yearOf(date),
                     releaseDate = fullDate(date),
@@ -224,11 +291,40 @@ object TmdbJson {
                 certification = certification?.takeIf { it.isNotBlank() },
                 genres = genres,
                 runtime = runtime,
-                cast = cast,
-                logo = TmdbPaths.image(logo, "w500"),
+                cast = cast.take(4).map { it.name },
+                logo = TmdbPaths.image(logo, TmdbPaths.LOGO),
                 tagline = tagline,
+                castMembers = cast,
+                episodeRuntime = episodeRuntime ?: lastEpisodeRuntime,
             )
         }
+
+    /** The first number of an int array such as `episode_run_time`, or null when it is empty. */
+    private fun JsonReader.firstInt(): Int? {
+        if (peek() != JsonReader.Token.BEGIN_ARRAY) {
+            skipValue()
+            return null
+        }
+        var first: Int? = null
+        beginArray()
+        while (hasNext()) {
+            val n = intOrNull()
+            if (first == null) first = n?.takeIf { it > 0 }
+        }
+        endArray()
+        return first
+    }
+
+    /** `runtime` of an episode object, for example `last_episode_to_air`. */
+    private fun JsonReader.runtimeOf(): Int? {
+        if (peek() != JsonReader.Token.BEGIN_OBJECT) {
+            skipValue()
+            return null
+        }
+        var runtime: Int? = null
+        obj { if (nextName() == "runtime") runtime = intOrNull()?.takeIf { it > 0 } else skipValue() }
+        return runtime
+    }
 
     /** The [field] string of each object in an array, for example the genre names. */
     private fun JsonReader.names(field: String): List<String> {
@@ -251,14 +347,43 @@ object TmdbJson {
         return out
     }
 
-    private fun JsonReader.castNames(): List<String> {
+    /** The first [TmdbTitleDetails.CAST_LIMIT] billed cast of a `credits` object. TMDB lists them in billing order. */
+    private fun JsonReader.castMembers(): List<TmdbCastMember> {
         if (peek() != JsonReader.Token.BEGIN_OBJECT) {
             skipValue()
             return emptyList()
         }
-        var cast = emptyList<String>()
-        obj { if (nextName() == "cast") cast = names("name").take(4) else skipValue() }
-        return cast
+        val out = ArrayList<TmdbCastMember>()
+        obj {
+            if (nextName() == "cast" && peek() == JsonReader.Token.BEGIN_ARRAY) {
+                beginArray()
+                while (hasNext()) {
+                    if (peek() != JsonReader.Token.BEGIN_OBJECT) {
+                        skipValue()
+                        continue
+                    }
+                    var name: String? = null
+                    var character: String? = null
+                    var photo: String? = null
+                    obj {
+                        when (nextName()) {
+                            "name" -> name = stringOrNull()?.trim()
+                            "character" -> character = stringOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+                            "profile_path" -> photo = stringOrNull()
+                            else -> skipValue()
+                        }
+                    }
+                    val shown = name?.takeIf { it.isNotEmpty() }
+                    if (shown != null && out.size < TmdbTitleDetails.CAST_LIMIT) {
+                        out += TmdbCastMember(shown, character, TmdbPaths.image(photo, TmdbPaths.PROFILE))
+                    }
+                }
+                endArray()
+            } else {
+                skipValue()
+            }
+        }
+        return out
     }
 
     /** TMDB sorts logos by vote, so the first English or textless one is the best. */
@@ -363,8 +488,8 @@ object TmdbJson {
             mediaType = type,
             name = shown,
             overview = overview,
-            poster = TmdbPaths.image(poster, "w500"),
-            backdrop = TmdbPaths.image(backdrop, "w780"),
+            poster = TmdbPaths.image(poster, TmdbPaths.POSTER),
+            backdrop = TmdbPaths.image(backdrop, TmdbPaths.BACKDROP),
             vote = vote,
             year = yearOf(date),
             releaseDate = fullDate(date),
@@ -438,7 +563,7 @@ object TmdbJson {
                 number = n,
                 name = name.ifBlank { "Episode $n" },
                 overview = overview,
-                still = TmdbPaths.image(still, "w300"),
+                still = TmdbPaths.image(still, TmdbPaths.STILL),
                 runtime = runtime?.takeIf { it > 0 },
                 airDate = airDate,
             )
@@ -592,9 +717,18 @@ class TmdbClient(private val http: OkHttpClient = defaultHttp()) {
     fun trendingTv() = page(TmdbPaths.trendingTv(), "tv")
     fun onTheAir(page: Int = 1) = page(TmdbPaths.onTheAir(page), "tv")
     fun search(query: String) = page(TmdbPaths.search(query), null).items
-    fun anime(page: Int) = page(TmdbPaths.anime(page), "tv")
-    fun discover(kind: String, latest: Boolean, page: Int, today: String, country: String? = null) =
-        page(TmdbPaths.discover(kind, latest, page, today, country), kind)
+    fun anime(page: Int, genre: String? = null, year: Int? = null, order: TmdbPaths.Order = TmdbPaths.Order.POPULAR) =
+        page(TmdbPaths.anime(page, genre, year, order), "tv")
+    fun discover(
+        kind: String,
+        latest: Boolean,
+        page: Int,
+        today: String,
+        country: String? = null,
+        genre: String? = null,
+        year: Int? = null,
+        order: TmdbPaths.Order = TmdbPaths.Order.POPULAR,
+    ) = page(TmdbPaths.discover(kind, latest, page, today, country, genre, year, order), kind)
 
     fun movie(id: Int) = TmdbJson.details(get(TmdbPaths.movie(id)), "movie")
     fun tv(id: Int) = TmdbJson.details(get(TmdbPaths.tv(id)), "tv")

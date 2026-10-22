@@ -8,10 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -32,6 +30,8 @@ import com.kisskh.tv.ui.media.rememberNextEpisode
 import com.kisskh.tv.ui.media.StreamRequest
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -41,9 +41,7 @@ fun StreamPlayerScreen(vm: AppViewModel, dest: Dest.StreamPlayer) {
     val loaded by vm.media.stream.collectAsStateWithLifecycle()
     // The stream state is shared. Until this episode's own request lands, an older episode's result is not shown.
     val state = if (loaded is UiState.Success && (loaded as UiState.Success).data.key != request.key) UiState.Loading else loaded
-    val nav by vm.nav.collectAsStateWithLifecycle()
     val next = rememberNextEpisode(vm, dest.kind, dest.tmdbId, dest.season, dest.episode)
-    val showEpisodes = !dest.kind.isMovie && nav.stack.dropLast(1).lastOrNull() is Dest.MediaDetail
     var failed by remember(request) { mutableStateOf<String?>(null) }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when (val s = state) {
@@ -54,7 +52,7 @@ fun StreamPlayerScreen(vm: AppViewModel, dest: Dest.StreamPlayer) {
             is UiState.Empty -> Message(s.message ?: "Febbox returned no video for this title.", onBack = { vm.onBack() }, onHome = { vm.goHome() })
             // No token, or Febbox turned the token down: play CineJoy's own watch page, which finds a stream itself.
             is UiState.Error -> if (s.cause is TokenRequired) {
-                CineJoyWebPlayer(vm, dest, next, showEpisodes)
+                CineJoyWebPlayer(vm, dest, next)
             } else {
                 Message(
                     message = s.message,
@@ -81,7 +79,7 @@ fun StreamPlayerScreen(vm: AppViewModel, dest: Dest.StreamPlayer) {
                     },
                     hideControlsOnBack = failed == null,
                     requestHeaders = PlayerHeaders.CineJoy,
-                    showEpisodes = showEpisodes,
+                    showEpisodes = false,
                 )
                 val message = failed
                 if (message != null) {
@@ -102,7 +100,7 @@ fun StreamPlayerScreen(vm: AppViewModel, dest: Dest.StreamPlayer) {
 }
 
 @Composable
-private fun CineJoyWebPlayer(vm: AppViewModel, dest: Dest.StreamPlayer, next: Int?, showEpisodes: Boolean) {
+private fun CineJoyWebPlayer(vm: AppViewModel, dest: Dest.StreamPlayer, next: Int?) {
     val movie = dest.kind == MediaKind.MOVIE
     val sources = remember(dest.progressKey) {
         listOf(WebSource("CineJoy", "CJ", CineJoyWeb.watchUrl(movie, dest.tmdbId, dest.season, dest.episode)))
@@ -115,7 +113,7 @@ private fun CineJoyWebPlayer(vm: AppViewModel, dest: Dest.StreamPlayer, next: In
         referer = null,
         onBack = { vm.onBack() },
         onHome = { vm.goHome() },
-        onEpisodes = if (showEpisodes) ({ vm.onBack() }) else null,
+        onEpisodes = null,
         onNext = next?.let { episode -> { vm.switchStream(dest.copy(episode = episode, episodeName = "")) } },
         // The site picks its own layout from the browser. Its normal Android one fits a TV screen.
         userAgent = null,

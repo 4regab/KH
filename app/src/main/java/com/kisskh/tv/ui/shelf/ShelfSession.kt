@@ -10,12 +10,13 @@ import com.kisskh.tv.api.media.MediaKind
 import com.kisskh.tv.api.media.MediaProgress
 import com.kisskh.tv.api.media.continueEntries
 import com.kisskh.tv.api.media.TmdbClient
+import com.kisskh.tv.api.source.BrowseFilters
 import com.kisskh.tv.api.source.CONTINUE_ROW
 import com.kisskh.tv.api.source.EpisodeRef
-import com.kisskh.tv.api.source.OriginCountries
 import com.kisskh.tv.api.source.PlayPlan
 import com.kisskh.tv.api.source.ShelfRow
 import com.kisskh.tv.api.source.SourceCatalog
+import com.kisskh.tv.api.source.SourceFilters
 import com.kisskh.tv.api.source.TitleCard
 import com.kisskh.tv.api.source.TitleDetail
 import com.kisskh.tv.ui.Dest
@@ -46,9 +47,12 @@ data class BrowseState(
     val error: String? = null,
 )
 
-/** Key of one grid: source, kind and country ("all" when no country is chosen). */
-internal fun browseKey(library: Library, kind: MediaKind, country: String?): String =
-    "${library.key}:${kind.name}:${country?.uppercase() ?: "all"}"
+/** Key of one grid list: source, kind and the filters that are set ("all" when none). */
+internal fun browseKey(library: Library, kind: MediaKind, filters: BrowseFilters): String =
+    "${library.key}:${kind.name}:${filters.key()}"
+
+/** What search holds while the field is blank. The screen shows its own start page then. */
+private val NO_QUERY = UiState.Empty("Type a title.")
 
 /** Home rows in order: Continue Watching, My List, then the source's own rows (which never repeat those two). */
 internal fun mergeHomeRows(continueRow: ShelfRow?, myListRow: ShelfRow?, remote: List<ShelfRow>): List<ShelfRow> =
@@ -78,16 +82,16 @@ class ShelfSession(
     /** Where each list was scrolled to (first item, offset), so Back returns to the same spot. */
     val scrolls = HashMap<String, Pair<Int, Int>>()
 
-    private val _countries = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val _filters = MutableStateFlow<Map<String, BrowseFilters>>(emptyMap())
 
-    /** The Country chosen on each grid ("source:kind" -> ISO code), kept for the session. */
-    val countries: StateFlow<Map<String, String>> = _countries.asStateFlow()
+    /** The filters chosen on each grid ("source:KIND" -> filters), kept for the session. A grid left on its default is absent. */
+    val filters: StateFlow<Map<String, BrowseFilters>> = _filters.asStateFlow()
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
     private val _allSources = MutableStateFlow(false)
     val allSources: StateFlow<Boolean> = _allSources.asStateFlow()
-    private val _results = MutableStateFlow<UiState<List<TitleCard>>>(UiState.Empty("Type a title."))
+    private val _results = MutableStateFlow<UiState<List<TitleCard>>>(NO_QUERY)
     val results: StateFlow<UiState<List<TitleCard>>> = _results.asStateFlow()
     private var searchJob: Job? = null
     private var searchLibrary: Library = Library.KISSKH
@@ -173,20 +177,20 @@ class ShelfSession(
         return shown.takeIf { it.isNotEmpty() }?.let { ShelfRow(CONTINUE_ROW, it) }
     }
 
-    /** The country this grid is filtered to, or null for All. Always null where [OriginCountries.supported] is false. */
-    fun country(library: Library, kind: MediaKind): String? =
-        _countries.value["${library.key}:${kind.name}"]?.takeIf { OriginCountries.supported(library, kind) }
+    /** The filters of this grid: what the viewer chose, or the grid's plain default. */
+    fun filtersFor(library: Library, kind: MediaKind): BrowseFilters =
+        _filters.value[slot(library, kind)] ?: BrowseFilters(sort = SourceFilters.capabilities(library, kind).defaultSort)
 
     /**
-     * Picks the country of a grid (null = All). Each country has its own pages, so the new list
-     * starts at page 1 and nothing from the old country is mixed in. The old country's load is
-     * cancelled; a load that never finished is dropped so it starts again if the viewer comes back.
+     * Picks the filters of a grid. Each distinct set of filters has its own pages, so the new list
+     * starts at page 1 and nothing from the old one is mixed in. Values the grid cannot filter on are
+     * dropped (see [SourceFilters]). The old set's load is cancelled; a load that never finished is
+     * dropped so it starts again if the viewer comes back.
      */
-    fun setCountry(library: Library, kind: MediaKind, code: String?) {
-        if (!OriginCountries.supported(library, kind)) return
-        val slot = "${library.key}:${kind.name}"
-        val old = _countries.value[slot]
-        val new = OriginCountries.byCode(code)?.code
+    fun setFilters(library: Library, kind: MediaKind, filters: BrowseFilters) {
+        val caps = SourceFilters.capabilities(library, kind)
+        val new = caps.normalize(filters)
+        val old = filtersFor(library, kind)
         if (old == new) return
         val oldKey = browseKey(library, kind, old)
         browseJobs.remove(oldKey)?.cancel()
@@ -194,25 +198,26 @@ class ShelfSession(
             val now = flow.value
             if (now.loading) browses.remove(oldKey) else if (now.loadingMore) flow.value = now.copy(loadingMore = false)
         }
-        _countries.value = if (new == null) _countries.value - slot else _countries.value + (slot to new)
+        val slot = slot(library, kind)
+        _filters.value = if (caps.isDefault(new)) _filters.value - slot else _filters.value + (slot to new)
     }
 
-    fun browse(library: Library, kind: MediaKind, country: String? = null): StateFlow<BrowseState> {
-        val code = country.forGrid(library, kind)
-        val key = browseKey(library, kind, code)
-        return browses.getOrPut(key) { MutableStateFlow(BrowseState()).also { loadBrowse(library, kind, code, it, 1) } }
+    /** The list for [filters] on this grid. Each distinct set of filters is its own paged list. */
+    fun browse(library: Library, kind: MediaKind, filters: BrowseFilters): StateFlow<BrowseState> {
+        val f = SourceFilters.normalize(library, kind, filters)
+        val key = browseKey(library, kind, f)
+        return browses.getOrPut(key) { MutableStateFlow(BrowseState()).also { loadBrowse(library, kind, f, it, 1) } }
     }
 
-    fun retryBrowse(library: Library, kind: MediaKind, country: String? = null) {
-        val code = country.forGrid(library, kind)
-        val key = browseKey(library, kind, code)
-        val flow = browses.getOrPut(key) { MutableStateFlow(BrowseState()) }
-        loadBrowse(library, kind, code, flow, 1)
+    fun retryBrowse(library: Library, kind: MediaKind, filters: BrowseFilters) {
+        val f = SourceFilters.normalize(library, kind, filters)
+        val flow = browses.getOrPut(browseKey(library, kind, f)) { MutableStateFlow(BrowseState()) }
+        loadBrowse(library, kind, f, flow, 1)
     }
 
-    fun loadMore(library: Library, kind: MediaKind, country: String? = null) {
-        val code = country.forGrid(library, kind)
-        val key = browseKey(library, kind, code)
+    fun loadMore(library: Library, kind: MediaKind, filters: BrowseFilters) {
+        val f = SourceFilters.normalize(library, kind, filters)
+        val key = browseKey(library, kind, f)
         val flow = browses[key] ?: return
         val cur = flow.value
         if (cur.loading || cur.loadingMore || !cur.hasMore || cur.items.isEmpty()) return
@@ -220,7 +225,7 @@ class ShelfSession(
         browseJobs[key]?.cancel()
         browseJobs[key] = scope.launch {
             val next = cur.page + 1
-            val result = io { SourceCatalog.browse(library, kind, next, repo, tmdb, code) }
+            val result = io { SourceCatalog.browse(library, kind, next, repo, tmdb, f) }
             val now = flow.value
             flow.value = result.fold(
                 onSuccess = { page ->
@@ -231,16 +236,14 @@ class ShelfSession(
         }
     }
 
-    /** [this] when this grid can filter by country, otherwise null, so a stray value cannot split the grid's state. */
-    private fun String?.forGrid(library: Library, kind: MediaKind): String? =
-        OriginCountries.byCode(this)?.code?.takeIf { OriginCountries.supported(library, kind) }
+    private fun slot(library: Library, kind: MediaKind) = "${library.key}:${kind.name}"
 
-    private fun loadBrowse(library: Library, kind: MediaKind, code: String?, flow: MutableStateFlow<BrowseState>, page: Int) {
-        val key = browseKey(library, kind, code)
+    private fun loadBrowse(library: Library, kind: MediaKind, filters: BrowseFilters, flow: MutableStateFlow<BrowseState>, page: Int) {
+        val key = browseKey(library, kind, filters)
         browseJobs[key]?.cancel()
         flow.value = BrowseState()
         browseJobs[key] = scope.launch {
-            val result = io { SourceCatalog.browse(library, kind, page, repo, tmdb, code) }
+            val result = io { SourceCatalog.browse(library, kind, page, repo, tmdb, filters) }
             flow.value = result.fold(
                 onSuccess = { loaded ->
                     BrowseState(items = loaded.items, page = loaded.page.coerceAtLeast(1), hasMore = loaded.hasMore, loading = false)
@@ -249,7 +252,6 @@ class ShelfSession(
             )
         }
     }
-
     fun detail(library: Library, id: String, kind: MediaKind, slug: String, name: String, poster: String?): StateFlow<UiState<TitleDetail>> {
         val key = "${library.key}:$id:$kind"
         return details.getOrPut(key) {
@@ -321,11 +323,12 @@ class ShelfSession(
         searchJob?.cancel()
         val trimmed = value.trim()
         if (trimmed.isEmpty()) {
-            _results.value = UiState.Empty("Type a title.")
+            _results.value = NO_QUERY
             return
         }
         // Results from another source (or the other scope) must not stay on screen while the new search waits.
-        if (scopeChanged) _results.value = UiState.Loading
+        // Nor may the empty state of a blank field: the first letter shows the skeleton at once.
+        if (scopeChanged || _results.value == NO_QUERY) _results.value = UiState.Loading
         val everywhere = _allSources.value
         searchJob = scope.launch {
             delay(400)

@@ -27,8 +27,8 @@ fun RootTab.labelFor(library: Library): String =
 /** Tabs for one source, in the order they appear. */
 fun Library.tabs(): List<RootTab> = when (this) {
     Library.KISSKH -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.SERIES, RootTab.MOVIES, RootTab.COUNTRIES, RootTab.MINE)
-    Library.CINEWAVE, Library.REELIX -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES, RootTab.ANIME, RootTab.MINE)
-    Library.CINEJOY -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES, RootTab.MINE)
+    Library.CINEWAVE, Library.CINEJOY, Library.REELIX ->
+        listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES, RootTab.ANIME, RootTab.MINE)
     Library.ANISUGE, Library.NEXUS -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.ANIME, RootTab.MINE)
 }
 
@@ -178,40 +178,6 @@ sealed interface Dest {
         val episodeNumber: Float = 0f,
         val thumbnail: String? = null,
     ) : Dest
-
-    /** A TMDB grid: movies, TV, or CineWave anime. */
-    data class MediaBrowse(
-        val kind: MediaKind,
-        val latest: Boolean = false,
-        override val focusKey: String? = null,
-        override val scrollIndex: Int = 0,
-    ) : Restorable {
-        override val tab: RootTab
-            get() = when (kind) {
-                MediaKind.MOVIE -> RootTab.MOVIES
-                MediaKind.TV -> RootTab.SERIES
-                MediaKind.ANIME -> RootTab.ANIME
-            }
-        val browseKey: String
-            get() = if (kind == MediaKind.ANIME) "anime" else "${kind.name}:${if (latest) "latest" else "popular"}"
-
-        override fun withFocus(focusKey: String?, scrollIndex: Int?) =
-            copy(focusKey = focusKey, scrollIndex = scrollIndex ?: this.scrollIndex)
-
-        fun withSort(latest: Boolean): MediaBrowse =
-            if (kind == MediaKind.ANIME || latest == this.latest) this
-            else copy(latest = latest, focusKey = null, scrollIndex = 0)
-    }
-
-    data class MediaDetail(
-        val kind: MediaKind,
-        val tmdbId: Int,
-        override val focusKey: String? = null,
-        override val scrollIndex: Int = 0,
-    ) : Restorable {
-        override fun withFocus(focusKey: String?, scrollIndex: Int?) =
-            copy(focusKey = focusKey, scrollIndex = scrollIndex ?: this.scrollIndex)
-    }
 
     /** CineWave iframe. Servers are chosen on the screen, in the site's order. */
     data class EmbedPlayer(

@@ -50,9 +50,9 @@ import com.kisskh.tv.ui.components.focusIfRestoring
 import com.kisskh.tv.ui.components.rememberFocusedYear
 import com.kisskh.tv.ui.components.rememberFocusRestore
 import com.kisskh.tv.ui.components.revealIndex
-import com.kisskh.tv.ui.components.screenStart
+import com.kisskh.tv.ui.components.edge
+import com.kisskh.tv.ui.components.isTv
 import com.kisskh.tv.ui.errorMessage
-import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhTheme
 
@@ -75,7 +75,7 @@ fun CatalogScreen(vm: AppViewModel, dest: Dest.Catalog) {
     val pager = remember(dest.pagerKey) { vm.pager(dest) }
     val state by pager.state.collectAsStateWithLifecycle()
     val query = dest.query
-    val tv = KhTheme.formFactor == FormFactor.TV
+    val tv = isTv()
 
     val gridState = rememberLazyGridState(initialFirstVisibleItemIndex = dest.scrollIndex)
     val tracker = remember { FocusTracker() }
@@ -115,7 +115,7 @@ fun CatalogScreen(vm: AppViewModel, dest: Dest.Catalog) {
             FocusedTitleLine(
                 title = focused?.title?.trim()?.takeIf { it.isNotEmpty() },
                 year = year,
-                modifier = Modifier.padding(start = screenStart(), end = KhTheme.spacing.safeHorizontal),
+                modifier = Modifier.padding(start = edge(), end = KhTheme.spacing.safeHorizontal),
             )
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -149,7 +149,7 @@ fun CatalogScreen(vm: AppViewModel, dest: Dest.Catalog) {
 @Composable
 private fun CatalogHeader(vm: AppViewModel, dest: Dest.Catalog, tracker: FocusTracker, restore: FocusRestore) {
     val query = dest.query
-    val tv = KhTheme.formFactor == FormFactor.TV
+    val tv = isTv()
     val heading = when (dest) {
         is Dest.Series -> "TV Series"
         is Dest.Movies -> "Movies"
@@ -158,7 +158,7 @@ private fun CatalogHeader(vm: AppViewModel, dest: Dest.Catalog, tracker: FocusTr
     val change: ((CatalogQuery) -> CatalogQuery) -> Unit = { vm.setCatalogQuery(it) }
 
     Column(
-        Modifier.padding(start = screenStart(), end = KhTheme.spacing.safeHorizontal),
+        Modifier.padding(start = edge(), end = KhTheme.spacing.safeHorizontal),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(

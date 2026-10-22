@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,8 +21,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.kisskh.tv.R
@@ -50,6 +50,8 @@ fun KhBottomNav(
         modifier
             .fillMaxWidth()
             .background(KhColors.Background)
+            // A hairline on top, so the bar reads as its own layer over the page.
+            .drawBehind { drawRect(KhColors.NavDivider, size = androidx.compose.ui.geometry.Size(size.width, 1.dp.toPx())) }
             .windowInsetsPadding(WindowInsets.navigationBars)
             .height(PhoneNavHeight),
         verticalAlignment = Alignment.CenterVertically,
@@ -72,7 +74,12 @@ fun KhBottomNav(
             ) {
                 Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(painterResource(iconFor(tab)), contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
-                    Text(label, color = tint, fontSize = 11.sp, maxLines = 1)
+                    Text(
+                        label,
+                        style = KhTheme.typography.navLabel.copy(fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal),
+                        color = tint,
+                        maxLines = 1,
+                    )
                 }
             }
         }
@@ -93,7 +100,7 @@ fun PhoneWordmark(modifier: Modifier = Modifier) {
 fun PhoneSearchButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     KhFocusable(
         onClick = onClick,
-        modifier = modifier.size(40.dp).semantics { contentDescription = "Search" },
+        modifier = modifier.size(48.dp).semantics { contentDescription = "Search" },
         shape = KhTheme.shapes.chip,
         scaleAndLift = false,
     ) {

@@ -4,6 +4,7 @@ import com.kisskh.tv.api.SubtitleFile
 import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.api.media.MediaKeys
 import com.kisskh.tv.api.media.MediaKind
+import com.kisskh.tv.api.media.TmdbPaths
 
 /**
  * One title, whatever site it came from. [id] is the site's own id (TMDB number, Anisuge slug,
@@ -50,15 +51,52 @@ data class EpisodeRef(
     val token: String = "",
     val sub: Boolean = true,
     val dub: Boolean = false,
-)
+    /** First air date (yyyy-MM-dd). Only TMDB-backed sources (CineWave, CineJoy, Reelix) give one. */
+    val airDate: String? = null,
+    val overview: String? = null,
+    val runtimeMinutes: Int? = null,
+) {
+    /**
+     * False when the episode airs after [today] (yyyy-MM-dd), so the screen can say "Coming <date>".
+     * ponytail: a missing date counts as aired, so a gap in a site's data never blocks a real episode.
+     */
+    fun aired(today: String = TmdbPaths.todayUtc()): Boolean = airDate == null || airDate <= today
+}
 
 data class SeasonBlock(val number: Int, val name: String, val episodes: List<EpisodeRef>)
 
+/** One billed actor. [photo] is a w185 picture, or null when the source has none. */
+data class CastMember(val name: String, val character: String?, val photo: String?)
+
+/**
+ * Everything a detail page shows. Only [card], [description] and [seasons] are always set; the rest
+ * is filled by the sources that have it (see each field) and stays empty or null elsewhere.
+ */
 data class TitleDetail(
     val card: TitleCard,
     val description: String,
     val seasons: List<SeasonBlock>,
     val certification: String? = null,
+    /** Wide art, 1280 px. TMDB sources, Anisuge. */
+    val backdrop: String? = null,
+    /** Transparent title logo, 500 px. TMDB sources only. */
+    val logo: String? = null,
+    val tagline: String? = null,
+    /** Genre names. TMDB sources, Anisuge, Anime Nexus. KissKH's API has none. */
+    val genres: List<String> = emptyList(),
+    /** Movie length, or a show's typical episode length, in minutes. */
+    val runtimeMinutes: Int? = null,
+    val year: String? = null,
+    /** Score out of 10: TMDB's vote average, or Anisuge's MAL score. */
+    val rating: Double? = null,
+    /** Top billed cast (at most 12). TMDB sources only. */
+    val cast: List<CastMember> = emptyList(),
+    /** More like this, from the same source. TMDB sources only. */
+    val recommendations: List<TitleCard> = emptyList(),
+    /** Country of origin as the site words it. KissKH only. */
+    val country: String? = null,
+    /** "Ongoing", "Completed", "Currently Airing"... in the site's words. KissKH, Anisuge, Anime Nexus. */
+    val status: String? = null,
 ) {
     val playable: EpisodeRef?
         get() = seasons.firstOrNull()?.episodes?.firstOrNull()

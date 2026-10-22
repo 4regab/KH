@@ -27,6 +27,7 @@ import com.kisskh.tv.ui.AppViewModel
 import com.kisskh.tv.ui.Dest
 import com.kisskh.tv.ui.components.Artwork
 import com.kisskh.tv.ui.components.KhButton
+import com.kisskh.tv.ui.components.KhProgressBar
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhFocusable
 import com.kisskh.tv.ui.theme.KhTheme
@@ -124,19 +125,13 @@ private fun DownloadRow(item: DownloadItem, onPlay: () -> Unit, onRemove: () -> 
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (item.phase == DownloadPhase.DOWNLOADING) ProgressBar(item.percent)
+                    if (item.phase == DownloadPhase.DOWNLOADING) {
+                        // An unknown size shows an empty bar.
+                        KhProgressBar((item.percent / 100f), Modifier.padding(top = 4.dp), height = 4.dp, track = KhColors.ChipOutline)
+                    }
                 }
             }
         }
         KhButton(if (finished) "Remove" else "Cancel", onClick = onRemove)
-    }
-}
-
-/** A thin bar, red for the part done. An unknown size shows an empty bar. */
-@Composable
-private fun ProgressBar(percent: Float) {
-    val fraction = (percent / 100f).coerceIn(0f, 1f)
-    Box(Modifier.padding(top = 4.dp).fillMaxWidth().height(4.dp).background(KhColors.ChipOutline)) {
-        Box(Modifier.fillMaxWidth(fraction).height(4.dp).background(KhColors.Brand))
     }
 }

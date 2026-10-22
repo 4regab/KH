@@ -12,13 +12,15 @@ android {
         applicationId = "com.kisskh.tv"
         minSdk = 23
         targetSdk = 34
-        versionCode = 6
-        versionName = "2.0"
+        versionCode = 7
+        versionName = "3.0"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -47,6 +49,9 @@ dependencies {
     implementation("androidx.paging:paging-compose:3.3.5")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // Installs the baseline profiles shipped inside Compose and Media3, and our own, so release starts faster.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     // Reaches the video inside embed players' frames, for the seek bar.
     implementation("androidx.webkit:webkit:1.12.1")

@@ -16,7 +16,7 @@ DramaList/List?page=N&pageSize=40&type=T&sub=0&country=C&status=S&order=O
 -> {page,pageSize,totalCount,data:[...]}  (pages do not overlap; verified p1/p2 overlap=0)
 
 ### Verified catalog mapping (source: kisskh Explore page chunk 780.f011ddf6618b7a1e.js `chips`
-### array, cross-checked 2026-10-18 by sampling DramaList/Drama/{id} for each filter; see probe/categories*.txt)
+### array, cross-checked 2026-10-18 by sampling DramaList/Drama/{id} for each filter; the raw probe output is in git history as docs/categories.txt and docs/categories2.txt)
 - type (site labels): 0 All, 1 TVSeries, 2 Movie, 3 Anime, 4 Hollywood
   - type=1 detail.type == "TVSeries"; type=2 detail.type == "Movie"; type=3 "Anime"; type=4 "Hollywood"
   - Hollywood (4) = US content, mixed series and movies; only country 6 has results.

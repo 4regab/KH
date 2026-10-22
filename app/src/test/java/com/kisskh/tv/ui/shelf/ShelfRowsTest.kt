@@ -3,6 +3,7 @@ package com.kisskh.tv.ui.shelf
 import com.kisskh.tv.api.MY_LIST_ROW
 import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.api.media.MediaKind
+import com.kisskh.tv.api.source.BrowseFilters
 import com.kisskh.tv.api.source.CONTINUE_ROW
 import com.kisskh.tv.api.source.ShelfRow
 import com.kisskh.tv.api.source.TitleCard
@@ -25,12 +26,13 @@ class ShelfRowsTest {
     }
 
     @Test fun eachCountryHasItsOwnGridKey() {
-        val all = browseKey(Library.CINEWAVE, MediaKind.MOVIE, null)
-        val kr = browseKey(Library.CINEWAVE, MediaKind.MOVIE, "KR")
+        fun key(library: Library, kind: MediaKind, country: String?) = browseKey(library, kind, BrowseFilters(country = country))
+        val all = key(Library.CINEWAVE, MediaKind.MOVIE, null)
+        val kr = key(Library.CINEWAVE, MediaKind.MOVIE, "KR")
         assertNotEquals(all, kr)
-        assertNotEquals(kr, browseKey(Library.CINEWAVE, MediaKind.MOVIE, "JP"))
-        assertNotEquals(kr, browseKey(Library.CINEJOY, MediaKind.MOVIE, "KR"))
-        assertNotEquals(kr, browseKey(Library.CINEWAVE, MediaKind.TV, "KR"))
-        assertEquals(kr, browseKey(Library.CINEWAVE, MediaKind.MOVIE, "kr"))
+        assertNotEquals(kr, key(Library.CINEWAVE, MediaKind.MOVIE, "JP"))
+        assertNotEquals(kr, key(Library.CINEJOY, MediaKind.MOVIE, "KR"))
+        assertNotEquals(kr, key(Library.CINEWAVE, MediaKind.TV, "KR"))
+        assertEquals(kr, key(Library.CINEWAVE, MediaKind.MOVIE, "kr"))
     }
 }

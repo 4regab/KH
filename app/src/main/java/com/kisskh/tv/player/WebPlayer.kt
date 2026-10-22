@@ -3,6 +3,8 @@
 package com.kisskh.tv.player
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
@@ -11,7 +13,6 @@ import android.view.MotionEvent
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
-import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -164,7 +165,6 @@ fun WebPlayer(
     fun toggle() {
         if (bridge.live && bridge.toggle()) return
         web.value?.let {
-            gate.touchedAt = SystemClock.uptimeMillis()
             it.tapCenter()
             gate.tapped(it)
         }
@@ -336,7 +336,6 @@ fun WebPlayer(
                         while (true) {
                             val event = awaitPointerEvent()
                             val now = SystemClock.uptimeMillis()
-                            gate.touchedAt = now
                             if (tv || event.changes.any { it.position.y < TOUCH_STRIP.toPx() }) {
                                 lastKey = now
                                 overlay = true
@@ -371,19 +370,13 @@ fun WebPlayer(
                     isFocusableInTouchMode = true
                     CookieManager.getInstance().setAcceptCookie(true)
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                    webChromeClient = object : WebChromeClient() {
+                    webChromeClient = object : ShieldChromeClient() {
                         // Not copied to the system log. Logging every message slows a weak TV enough that some
                         // players' devtools checks (they time console calls) fire and blank the page.
                         override fun onConsoleMessage(message: android.webkit.ConsoleMessage?): Boolean = true
-
-                        override fun onCreateWindow(
-                            view: WebView?,
-                            isDialog: Boolean,
-                            isUserGesture: Boolean,
-                            resultMsg: android.os.Message?,
-                        ): Boolean = false
                     }
                     webViewClient = EmbedClient(gate)
+                    AdShield.install(this)
                     zoomable = bridge.install(this)
                     web.value = this
                 }
@@ -419,9 +412,11 @@ fun WebPlayer(
                         Modifier.fillMaxWidth().height(TOUCH_STRIP + 24.dp)
                             .background(Brush.verticalGradient(0f to TOUCH_SCRIM, 0.55f to TOUCH_SCRIM, 1f to Color.Transparent)),
                     )
+                    // WatchScreen already ends its label with the server name; the other callers do not.
+                    val server = source.name.takeUnless { label == it || label.endsWith(" · $it") }
                     TopBar(
                         title = title,
-                        label = listOfNotNull(label.ifBlank { null }, source.name, note).joinToString(" · "),
+                        label = listOfNotNull(label.ifBlank { null }, server, note).joinToString(" · "),
                         onBack = onBack,
                         onHome = onHome,
                         onEpisodes = onEpisodes,
@@ -727,12 +722,21 @@ private class LoadGate {
     var started: String = ""
     private var used = false
     private var generation = 0
+
+    /** True once the current page has finished loading. From then on the page may not move to another site. */
+    private var settled = false
     var onFail: (String, Boolean) -> Unit = { _, _ -> }
 
     fun begin(url: String) {
         started = url
         used = false
+        settled = false
         generation++
+    }
+
+    /** A new page is loading (a form post, a same-site link): it gets the same grace to redirect as the first. */
+    fun pageStarted() {
+        settled = false
     }
 
     fun fail(reason: String, retrySame: Boolean = false) {
@@ -746,6 +750,7 @@ private class LoadGate {
      * says it can't find the title. Single-page sites draw that a moment after load, so look twice.
      */
     fun finished(view: WebView, url: String?) {
+        settled = true
         if (used) return
         if (url != null && EmbedPage.blanked(url)) {
             fail("the page closed itself", retrySame = true)
@@ -783,19 +788,18 @@ private class LoadGate {
         }
     }
 
-    /** Time of the last OK tap or finger touch on the page. */
-    var touchedAt = 0L
-
-    fun navigate(view: WebView, url: String, mainFrame: Boolean, gesture: Boolean, redirect: Boolean): Boolean {
-        val afterTap = gesture || SystemClock.uptimeMillis() - touchedAt < TAP_WINDOW_MS
-        // An ad behind the play button tried to take over the page: stay on the player.
-        if (mainFrame && EmbedPolicy.hijack(view.url, url, afterTap, redirect)) {
-            Log.w(TAG, "blocked a tap that left for another site")
+    fun navigate(view: WebView, url: String, mainFrame: Boolean, redirect: Boolean): Boolean {
+        // A settled page (ad script, popup, tap on a hidden ad) tried to take over the player: stay on it.
+        if (mainFrame && EmbedPolicy.hijack(view.url, url, settled, redirect)) {
+            Log.w(TAG, "blocked a move to another site: ${Uri.parse(url).host}")
             return true
         }
         return when (EmbedPolicy.decide(url, mainFrame)) {
             EmbedNav.ALLOW -> false
-            EmbedNav.BLOCK -> true
+            EmbedNav.BLOCK -> {
+                Log.w(TAG, "blocked a navigation: ${Uri.parse(url).scheme}://${Uri.parse(url).host}")
+                true
+            }
             EmbedNav.FAIL -> {
                 fail("ad redirect")
                 true
@@ -807,11 +811,15 @@ private class LoadGate {
 private class EmbedClient(private val gate: LoadGate) : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val redirect = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && request.isRedirect
-        return gate.navigate(view, request.url?.toString().orEmpty(), request.isForMainFrame, request.hasGesture(), redirect)
+        return gate.navigate(view, request.url?.toString().orEmpty(), request.isForMainFrame, redirect)
     }
 
     @Deprecated("Kept for API 23")
-    override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean = gate.navigate(view, url, true, gesture = false, redirect = false)
+    override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean = gate.navigate(view, url, true, redirect = false)
+
+    override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+        gate.pageStarted()
+    }
 
     override fun onPageFinished(view: WebView, url: String?) {
         gate.finished(view, url)
@@ -860,9 +868,6 @@ private fun WebView.tapCenter() {
 
 private const val TAG = "KhWebPlayer"
 private const val TAP_MILLIS = 60L
-
-/** A page change this soon after a tap counts as caused by the tap. */
-private const val TAP_WINDOW_MS = 3_000L
 private const val SAME_SOURCE_RETRIES = 2
 private const val FOCUS_TRIES = 6
 private const val FOCUS_STEP_MS = 120L

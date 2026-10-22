@@ -36,6 +36,104 @@ object Nexus {
     fun episodesUrl(id: String, page: Int, perPage: Int = 100) =
         "$API/api/anime/details/episodes?id=$id&page=$page&perPage=$perPage&order=asc"
 
+    /**
+     * One page of the whole catalog (`api/anime/shows`), the call behind the site's Series page.
+     * Only titles that have videos are listed (`hasVideos=1`); without it the list holds 23,899 titles and
+     * most cannot be played. [genre] is a genre UUID (see [SourceFilters]), [status] `Currently Airing` or
+     * `Finished Airing`. Send no unknown values: the API answers 500 for them.
+     * The site has no year, country or popularity parameter, so none is sent.
+     */
+    fun showsUrl(page: Int, sort: BrowseSort, genre: String? = null, status: String? = null, perPage: Int = 24): String {
+        val parts = ArrayList<String>()
+        parts += "page=$page"
+        parts += "perPage=$perPage"
+        parts += "hasVideos=1"
+        parts += "sortBy=" + encode(if (sort == BrowseSort.NEWEST) "release_date desc" else "updated_at desc")
+        genre?.takeIf { it.isNotBlank() }?.let { parts += "genres%5B%5D=${encode(it)}" }
+        status?.takeIf { it.isNotBlank() }?.let { parts += "status%5B%5D=${encode(it)}" }
+        // Without these the list has no pictures; the site's own search asks for the same three.
+        parts += "includes%5B%5D=poster&includes%5B%5D=genres&includes%5B%5D=background"
+        return "$API/api/anime/shows?" + parts.joinToString("&")
+    }
+
+    /** The catalog entry for a show, found by [name]. The API has no lookup by id, so the caller picks the right id from the page. */
+    fun showUrl(name: String): String =
+        "$API/api/anime/shows?page=1&perPage=24&hasVideos=1&search=${encode(name)}" +
+            "&includes%5B%5D=poster&includes%5B%5D=genres&includes%5B%5D=background"
+
+    /** What the catalog says about one show. */
+    data class ShowInfo(
+        val overview: String? = null,
+        val genres: List<String> = emptyList(),
+        val year: String? = null,
+        /** `parental_rating` cut at the dash: "PG-13 - Teens 13 or older" becomes "PG-13". */
+        val certification: String? = null,
+        val status: String? = null,
+        val backdrop: String? = null,
+    )
+
+    /** The entry of the shows list whose id is [id], or null when the list does not hold it. */
+    fun parseShowInfo(json: String, id: String): ShowInfo? {
+        var found: ShowInfo? = null
+        walkData(json) { reader ->
+            val (itemId, info) = readShowInfo(reader)
+            if (itemId == id && found == null) found = info
+        }
+        return found
+    }
+
+    private fun readShowInfo(reader: JsonReader): Pair<String, ShowInfo> {
+        if (reader.peek() != JsonReader.Token.BEGIN_OBJECT) {
+            reader.skipValue()
+            return "" to ShowInfo()
+        }
+        var id = ""
+        var overview = ""
+        var year = ""
+        var rating = ""
+        var status = ""
+        var backdrop: String? = null
+        val genres = ArrayList<String>()
+        reader.beginObject()
+        while (reader.hasNext()) {
+            when (reader.nextName()) {
+                "id" -> id = reader.readLoose()
+                "description" -> overview = reader.nextStringOrEmpty()
+                "release_date" -> year = reader.nextStringOrEmpty().take(4)
+                "parental_rating" -> rating = reader.nextStringOrEmpty()
+                "status" -> status = reader.nextStringOrEmpty()
+                "background", "backdrop" -> backdrop = image(firstPath(reader))
+                "genres" -> if (reader.peek() == JsonReader.Token.BEGIN_ARRAY) {
+                    reader.beginArray()
+                    while (reader.hasNext()) {
+                        if (reader.peek() != JsonReader.Token.BEGIN_OBJECT) {
+                            reader.skipValue()
+                            continue
+                        }
+                        reader.beginObject()
+                        while (reader.hasNext()) {
+                            if (reader.nextName() == "name") reader.nextStringOrEmpty().trim().takeIf { it.isNotEmpty() }?.let { genres += it } else reader.skipValue()
+                        }
+                        reader.endObject()
+                    }
+                    reader.endArray()
+                } else {
+                    reader.skipValue()
+                }
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+        return id to ShowInfo(
+            overview = overview.ifBlank { null },
+            genres = genres,
+            year = year.takeIf { it.length == 4 },
+            certification = rating.substringBefore(" - ").trim().ifBlank { null },
+            status = status.ifBlank { null },
+            backdrop = backdrop,
+        )
+    }
+
     fun statisticsUrl(id: String) = "$API/api/anime/details/statistics?id=$id"
 
     fun watchUrl(episodeId: String, slug: String): String {
@@ -130,7 +228,7 @@ object Nexus {
                 "name" -> name = reader.nextStringOrEmpty()
                 "description" -> overview = reader.nextStringOrEmpty()
                 "poster" -> poster = image(firstPath(reader))
-                "backdrop" -> backdrop = image(firstPath(reader))
+                "backdrop", "background" -> backdrop = image(firstPath(reader))
                 "logo" -> reader.skipValue()
                 "release_date", "relese_date" -> year = reader.nextStringOrEmpty().take(4)
                 else -> reader.skipValue()

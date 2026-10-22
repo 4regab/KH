@@ -23,9 +23,11 @@ import androidx.tv.material3.Text
 import com.kisskh.tv.api.SavedTitle
 import com.kisskh.tv.api.SavedTitles
 import com.kisskh.tv.api.media.Library
+import com.kisskh.tv.api.source.TitleCard
 import com.kisskh.tv.ui.AppViewModel
 import com.kisskh.tv.ui.shelf.ShelfCard
 import com.kisskh.tv.ui.shelf.cardWidth
+import com.kisskh.tv.ui.shelf.listKey
 import com.kisskh.tv.ui.shelf.openCard
 import com.kisskh.tv.ui.shelf.rememberTitleMark
 import com.kisskh.tv.ui.shelf.shapeFor
@@ -82,7 +84,7 @@ private fun SavedRow(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(cards, key = { "${it.source.key}:${it.kind}:${it.id}" }) { card ->
+                items(cards.distinctBy(TitleCard::listKey), key = TitleCard::listKey) { card ->
                     ShelfCard(card, shape, onClick = { vm.openCard(card, library) }, modifier = Modifier.width(width), mark = rememberTitleMark(vm, card))
                 }
             }

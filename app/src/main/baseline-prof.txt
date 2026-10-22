@@ -1,0 +1,5 @@
+# Baseline profile: the app's own startup path. Compose and Media3 ship theirs inside their libraries.
+# Each rule marks every method of the matching classes as hot, startup and post-startup.
+HSPLcom/kisskh/tv/KhApplication;->**(**)**
+HSPLcom/kisskh/tv/MainActivity;->**(**)**
+HSPLcom/kisskh/tv/ui/**;->**(**)**

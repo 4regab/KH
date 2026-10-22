@@ -2,6 +2,7 @@ package com.kisskh.tv.api.source
 
 import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.api.media.MediaKind
+import com.kisskh.tv.api.media.TmdbPaths
 import com.squareup.moshi.JsonReader
 import okio.Buffer
 import java.util.Locale
@@ -22,6 +23,73 @@ object Anisuge {
     fun serverListUrl(token: String) = "$SITE/ajax/server/list?servers=${urlEncode(token)}"
     fun serverUrl(linkId: String) = "$SITE/ajax/server?get=${urlEncode(linkId)}"
     fun searchUrl(keyword: String) = "$SITE/ajax/anime/search?keyword=${urlEncode(keyword)}"
+
+    /**
+     * One page (28 titles) of the site's own `/filter` list. Every part is optional except the order:
+     * [genre] is a genre id, [year] a premiere year, [status] `currently-airing` or `finished-airing`.
+     * The order is always sent, so a grid has one fixed order (`default` on the site is the same as
+     * `latest-updated`). Country is not sent: the site ignores it.
+     */
+    fun filterUrl(page: Int, sort: BrowseSort, genre: String? = null, year: Int? = null, status: String? = null): String {
+        val parts = ArrayList<String>()
+        parts += "sort=" + when (sort) {
+            BrowseSort.POPULAR -> "most-viewed"
+            BrowseSort.TOP_RATED -> "score"
+            BrowseSort.NEWEST -> "release-date"
+            BrowseSort.UPDATED -> "latest-updated"
+        }
+        genre?.takeIf { it.isNotBlank() }?.let { parts += "genre%5B%5D=${urlEncode(it)}" }
+        year?.let { parts += "year%5B%5D=$it" }
+        status?.takeIf { it.isNotBlank() }?.let { parts += "status%5B%5D=${urlEncode(it)}" }
+        parts += "page=$page"
+        return "$SITE/filter?" + parts.joinToString("&")
+    }
+
+    /** True when the page links to a page after [page]. The last page only links back. */
+    fun hasNextPage(html: String, page: Int): Boolean =
+        Regex("""[?&;]page=(\d+)""").findAll(html).any { (it.groupValues[1].toIntOrNull() ?: 0) > page }
+
+    /** What the show page says about the show. Every field is null or empty when the page lacks it. */
+    data class ShowInfo(
+        val overview: String? = null,
+        val genres: List<String> = emptyList(),
+        val year: String? = null,
+        val runtimeMinutes: Int? = null,
+        /** MAL score out of 10. */
+        val score: Double? = null,
+        val certification: String? = null,
+        val status: String? = null,
+        /** The page's wide background, resized to 1280 px when it is a TMDB picture. */
+        val backdrop: String? = null,
+    )
+
+    fun parseShowInfo(html: String): ShowInfo {
+        // The text of one meta row: from its label to the end of that row, so a missing value never reads the next row.
+        fun after(label: String): String? {
+            val i = html.indexOf("<div>$label</div>")
+            return if (i < 0) null else html.substring(i + label.length + 11, minOf(html.length, i + 2000)).substringBefore("</div>")
+        }
+        fun plain(raw: String?): String? =
+            raw?.let { HtmlText.unescape(it.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ")).trim() }?.ifBlank { null }
+        val full = Regex("""data-name="full"[^>]*>\s*<div>([\s\S]*?)</div>""").find(html)?.groupValues?.get(1)
+        val short = Regex("""data-name="short"[^>]*>\s*<div>([\s\S]*?)</div>""").find(html)?.groupValues?.get(1)
+        val genres = after("Genre:")
+            ?.let { span -> Regex("""<a\b[^>]*>([\s\S]*?)</a>""").findAll(span).mapNotNull { plain(it.groupValues[1]) }.toList() }
+            .orEmpty()
+        val backdrop = Regex("""class="media-bg[^"]*"\s+style="background-image:\s*url\('([^']+)'\)""").find(html)?.groupValues?.get(1)
+        return ShowInfo(
+            overview = plain(full) ?: plain(short),
+            genres = genres,
+            year = after("Premiered:")?.let { Regex("""\d{4}""").find(it)?.value },
+            runtimeMinutes = after("Duration:")?.let { Regex("""(\d+)""").find(it)?.groupValues?.get(1)?.toIntOrNull() }?.takeIf { it > 0 },
+            score = after("MAL:")?.let { Regex("""(\d+(?:\.\d+)?)""").find(it)?.groupValues?.get(1)?.toDoubleOrNull() }?.takeIf { it > 0 },
+            certification = plain(Regex("""class="rating mini-status"[^>]*>([^<]*)<""").find(html)?.groupValues?.get(1)),
+            status = plain(after("Status:")),
+            backdrop = backdrop?.let { art ->
+                if ("image.tmdb.org/t/p/original/" in art) art.replace("/t/p/original/", "/t/p/${TmdbPaths.BACKDROP}/") else art
+            },
+        )
+    }
 
     /** Same value the site sends as `vrf` for `ajax/episode/list/{id}`. */
     fun vrf(value: Any): String {

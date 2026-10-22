@@ -19,7 +19,7 @@ import com.kisskh.tv.ui.theme.KhMotion
  */
 class FixedPivotSpec(
     private val pivotPx: Float,
-    override val scrollAnimationSpec: AnimationSpec<Float> = tween(KhMotion.PivotScrollMillis, easing = KhMotion.EaseOutStrong),
+    override val scrollAnimationSpec: AnimationSpec<Float> = tween(KhMotion.PivotScrollMillis, easing = KhMotion.PivotEasing),
 ) : BringIntoViewSpec {
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = offset - pivotPx
 }

@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -78,7 +77,7 @@ fun KhButton(
 }
 
 /**
- * Play / More info. White primary, grey secondary, 44 dp tall, 6 dp corners.
+ * Play / More info. Brand red primary (white text), grey secondary, 44 dp tall, 6 dp corners.
  * The label stays on one line. Pass [modifier] width (for example `weight(1f)`) from the caller.
  */
 @Composable
@@ -97,12 +96,14 @@ fun KhActionButton(
         shape = KhTheme.shapes.action,
         interactionSource = interactionSource,
     ) {
-        val fill = if (primary) KhColors.TextPrimary else KhColors.ButtonGrey
-        val content = if (primary) KhColors.OnLight else KhColors.TextPrimary
+        val fill = if (primary) KhColors.BrandFill else KhColors.ButtonGrey
+        val content = if (primary) KhColors.OnBrand else KhColors.TextPrimary
+        // The fill matches the button's size. With no width from the caller the label sets it
+        // (a fillMaxSize row would stretch across the whole screen).
+        Box(Modifier.matchParentSize().background(fill, KhTheme.shapes.action))
         Row(
             Modifier
-                .fillMaxSize()
-                .background(fill, KhTheme.shapes.action)
+                .align(Alignment.Center)
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,

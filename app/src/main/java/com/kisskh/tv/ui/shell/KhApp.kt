@@ -7,11 +7,11 @@ import androidx.activity.compose.BackHandler
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,12 +23,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
@@ -37,7 +35,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,11 +51,11 @@ import com.kisskh.tv.ui.catalog.CountriesScreen
 import com.kisskh.tv.ui.components.FocusSaver
 import com.kisskh.tv.ui.components.KhScrollDefaults
 import com.kisskh.tv.ui.components.LocalFocusSaver
+import com.kisskh.tv.ui.components.focusFallback
+import com.kisskh.tv.ui.components.isTv
 import com.kisskh.tv.ui.components.rememberIsTelevision
 import com.kisskh.tv.ui.labelFor
 import com.kisskh.tv.ui.tabs
-import com.kisskh.tv.ui.media.MediaBrowseScreen
-import com.kisskh.tv.ui.media.MediaDetailScreen
 import com.kisskh.tv.ui.media.TokenScreen
 import com.kisskh.tv.ui.mine.MineScreen
 import com.kisskh.tv.download.OfflinePlayer
@@ -66,12 +66,13 @@ import com.kisskh.tv.ui.shelf.ShelfBrowse
 import com.kisskh.tv.ui.shelf.ShelfDetail
 import com.kisskh.tv.ui.shelf.ShelfHome
 import com.kisskh.tv.ui.shelf.ShelfSearch
-import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhMotion
-import com.kisskh.tv.ui.theme.KhTheme
+import com.kisskh.tv.ui.theme.LocalReduceMotion
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 /**
  * TV: a collapsed icon rail that expands over the page. Phone: a bottom bar, and on Home a top bar
@@ -88,7 +89,7 @@ fun KhApp(
 ) {
     val nav by vm.nav.collectAsStateWithLifecycle()
     val current = nav.current
-    val tv = KhTheme.formFactor == FormFactor.TV
+    val tv = isTv()
     val playing = current is Dest.Player || current is Dest.EmbedPlayer || current is Dest.StreamPlayer || current is Dest.Watch ||
         current is Dest.OfflinePlayer
     val showRail = tv && !playing
@@ -222,6 +223,12 @@ private fun TvScaffold(
             player = player,
             modifier = Modifier
                 .fillMaxSize()
+                // The rail's items are laid out 260 dp wide, so a narrow first card has no rail item "to its left"
+                // for Compose's focus search. Left with nowhere to go opens the rail, like Netflix.
+                .then(
+                    if (showRail) Modifier.focusFallback(Key.DirectionLeft, FocusDirection.Left) { runCatching { railFocus.requestFocus() } }
+                    else Modifier,
+                )
                 .padding(start = if (showRail) RailCollapsedWidth else 0.dp),
         )
         if (showRail && scrim > 0f) {
@@ -231,7 +238,7 @@ private fun TvScaffold(
                     .graphicsLayer { alpha = scrim }
                     .background(
                         Brush.horizontalGradient(
-                            0f to Color.Black.copy(alpha = 0.90f),
+                            0f to KhColors.ScrimRail,
                             0.55f to Color.Transparent,
                         ),
                     ),
@@ -276,7 +283,7 @@ private fun PhoneScaffold(
 ) {
     val current = nav.current
     val showNav = current !is Dest.Player && current !is Dest.Detail && current !is Dest.TitlePage &&
-        current !is Dest.EmbedPlayer && current !is Dest.StreamPlayer && current !is Dest.MediaDetail &&
+        current !is Dest.EmbedPlayer && current !is Dest.StreamPlayer &&
         current !is Dest.Watch && current !is Dest.Token && current !is Dest.OfflinePlayer
     val padStatus = current !is Dest.Home && current !is Dest.Detail && current !is Dest.TitlePage &&
         current !is Dest.Player && current !is Dest.EmbedPlayer && current !is Dest.StreamPlayer &&
@@ -329,8 +336,30 @@ private fun ScreenBody(
     player: @Composable (Dest.Player) -> Unit,
     modifier: Modifier,
 ) {
+    // How deep the stack was when the last screen was drawn: a deeper stack means a push.
+    val lastDepth = remember { intArrayOf(nav.stack.size) }
+    // Only a drill-down (a title page, a country list) rises; a rail tab switch just fades.
+    val pushed = nav.stack.size > lastDepth[0] && nav.current.tab == null
+    SideEffect { lastDepth[0] = nav.stack.size }
+    val instant = isInstantScreen(nav.current)
     key(screenKey(nav)) {
-        Box(modifier) {
+        // Each new screen fades in. The old screen is already gone (the key changed), so nothing
+        // overlaps and focus and Back stay simple. A graphicsLayer lambda keeps this off the
+        // composition path, and it is not AnimatedContent, so focus restore on the new screen is unchanged.
+        val enter = remember { Animatable(if (instant) 1f else 0f) }
+        val rise = remember { if (pushed && !instant) KhMotion.ScreenRiseDp else 0 } // fixed for this screen, even if `pushed` flips later
+        val reduce = LocalReduceMotion.current
+        val risePx = with(LocalDensity.current) { rise.dp.toPx() }
+        LaunchedEffect(Unit) {
+            if (enter.value < 1f) enter.animateTo(1f, KhMotion.screenEnter())
+        }
+        Box(
+            modifier.graphicsLayer {
+                val t = enter.value
+                alpha = t
+                if (!reduce) translationY = (1f - t) * risePx
+            },
+        ) {
             when (val d = nav.current) {
                 is Dest.Home -> ShelfHome(vm, nav.library)
                 is Dest.Search -> ShelfSearch(vm, nav.library)
@@ -342,8 +371,6 @@ private fun ScreenBody(
                 is Dest.Detail -> ShelfDetail(vm, nav.library, Dest.TitlePage(d.dramaId.toString(), com.kisskh.tv.api.media.MediaKind.TV))
                 is Dest.TitlePage -> ShelfDetail(vm, nav.library, d)
                 is Dest.Player -> player(d)
-                is Dest.MediaBrowse -> MediaBrowseScreen(vm, d)
-                is Dest.MediaDetail -> MediaDetailScreen(vm, nav.library, d)
                 is Dest.EmbedPlayer -> EmbedPlayer(vm, d)
                 is Dest.StreamPlayer -> StreamPlayerScreen(vm, d)
                 is Dest.Watch -> WatchScreen(vm, d)
@@ -355,6 +382,9 @@ private fun ScreenBody(
     }
 }
 
+/** Players appear at once: no fade, no rise. */
+private fun isInstantScreen(d: Dest): Boolean =
+    d is Dest.Player || d is Dest.EmbedPlayer || d is Dest.StreamPlayer || d is Dest.Watch || d is Dest.OfflinePlayer
 /** Same key = same screen, even when its filters or focus change. A different key = a new screen. */
 private fun screenKey(nav: NavState): String {
     val body = when (val d = nav.current) {
@@ -366,8 +396,6 @@ private fun screenKey(nav: NavState): String {
         is Dest.Player -> "player"
         is Dest.Shelf -> "shelf:${d.kind}"
         is Dest.TitlePage -> "title:${d.id}:${nav.stack.size}"
-        is Dest.MediaBrowse -> "browse:${d.browseKey}"
-        is Dest.MediaDetail -> "mdetail:${d.kind}:${d.tmdbId}:${nav.stack.size}"
         is Dest.EmbedPlayer -> "embed:${d.tmdbId}:${d.season}:${d.episode}"
         is Dest.StreamPlayer -> "stream:${d.progressKey}"
         is Dest.Watch -> "watch:${d.progressKey}"

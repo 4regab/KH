@@ -103,12 +103,31 @@ class MediaSourcesTest {
     }
 
     @Test
-    fun aTapThatLeavesForAnotherSiteIsAHijack() {
+    fun aSettledPageThatLeavesForAnotherSiteIsAHijack() {
         val page = "https://vidsrc.cc/v2/embed/movie/550"
-        assertTrue(EmbedPolicy.hijack(page, "https://ad.example.com/landing", afterTap = true, redirect = false))
-        assertFalse(EmbedPolicy.hijack(page, "https://player.vidsrc.cc/next", afterTap = true, redirect = false))
-        assertFalse(EmbedPolicy.hijack(page, "https://ad.example.com/landing", afterTap = false, redirect = false))
-        assertFalse(EmbedPolicy.hijack(page, "https://mirror.example.net/movie/550", afterTap = true, redirect = true))
+        assertTrue(EmbedPolicy.hijack(page, "https://ad.example.com/landing", settled = true, redirect = false))
+        assertFalse(EmbedPolicy.hijack(page, "https://player.vidsrc.cc/next", settled = true, redirect = false))
+        // Before the first page finishes, a move to a mirror is still the player (vidfast.pro to vidfast.vc).
+        assertFalse(EmbedPolicy.hijack("https://vidfast.pro/movie/550", "https://vidfast.vc/movie/550", settled = false, redirect = false))
+        assertFalse(EmbedPolicy.hijack(page, "https://mirror.example.net/movie/550", settled = true, redirect = true))
+        assertFalse(EmbedPolicy.hijack(null, "https://ad.example.com/landing", settled = true, redirect = false))
+        assertFalse(EmbedPolicy.hijack("about:blank", "https://ad.example.com/landing", settled = true, redirect = false))
+    }
+
+    @Test
+    fun adTagHostsSeenOnMultiembedAreBlockedButCloudfrontIsNot() {
+        assertTrue(EmbedPolicy.blocked("www.cdn4ads.com"))
+        assertTrue(EmbedPolicy.blocked("www.daqsvmdrgchu.com"))
+        assertTrue(EmbedPolicy.blocked("www.pkvjquvxvbd.com"))
+        assertTrue(EmbedPolicy.blocked("d3g5ovfngjw9bw.cloudfront.net"))
+        assertFalse(EmbedPolicy.blocked("d111111abcdef8.cloudfront.net"))
+        assertFalse(EmbedPolicy.blocked("cloudfront.net"))
+        assertTrue(EmbedPolicy.blocked("acscdn.com"))
+    }
+
+    @Test
+    fun theHostListHasNoBlankOrUppercaseEntries() {
+        assertTrue(EmbedPolicy.adHosts.all { it.isNotBlank() && it == it.lowercase() && !it.startsWith(".") })
     }
 
     @Test
@@ -155,7 +174,7 @@ class MediaSourcesTest {
         assertEquals(2, page.items.size)
         assertEquals("Fight Club", page.items[0].name)
         assertEquals("1999", page.items[0].year)
-        assertEquals("https://image.tmdb.org/t/p/w780/b.jpg", page.items[0].backdrop)
+        assertEquals("https://image.tmdb.org/t/p/w1280/b.jpg", page.items[0].backdrop)
         assertEquals("tv", page.items[1].mediaType)
         assertEquals(3, page.totalPages)
     }
@@ -304,7 +323,7 @@ class MediaSourcesTest {
         assertEquals(wave, wave.selectTab(RootTab.COUNTRIES))
 
         val joy = NavState(library = Library.CINEJOY)
-        assertEquals(joy, joy.selectTab(RootTab.ANIME))
+        assertEquals(Dest.Shelf(MediaKind.ANIME), joy.selectTab(RootTab.ANIME).current)
         assertTrue(joy.selectTab(RootTab.SERIES).current is Dest.Shelf)
 
         val reelix = NavState(library = Library.REELIX)

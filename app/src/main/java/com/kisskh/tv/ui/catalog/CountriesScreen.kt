@@ -30,13 +30,13 @@ import com.kisskh.tv.ui.FocusKeys
 import com.kisskh.tv.ui.components.FocusTracker
 import com.kisskh.tv.ui.components.RegisterFocusSaver
 import com.kisskh.tv.ui.components.cardGap
+import com.kisskh.tv.ui.components.edge
+import com.kisskh.tv.ui.components.isTv
 import com.kisskh.tv.ui.components.focusIfRestoring
 import com.kisskh.tv.ui.components.isCompactWidth
 import com.kisskh.tv.ui.components.rememberFocusRestore
 import com.kisskh.tv.ui.components.revealIndex
 import com.kisskh.tv.ui.components.screenContentPadding
-import com.kisskh.tv.ui.components.screenStart
-import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhFocusable
 import com.kisskh.tv.ui.theme.KhTheme
@@ -60,12 +60,12 @@ fun CountriesScreen(vm: AppViewModel, dest: Dest.Countries) {
     }
 
     val gap = cardGap()
-    val tv = KhTheme.formFactor == FormFactor.TV
+    val tv = isTv()
     Column(Modifier.fillMaxSize().padding(top = KhTheme.spacing.safeVertical)) {
         Text(
             "Countries",
             style = if (tv) KhTheme.typography.heading else KhTheme.typography.headline,
-            modifier = Modifier.padding(start = screenStart(), end = KhTheme.spacing.safeHorizontal),
+            modifier = Modifier.padding(start = edge(), end = KhTheme.spacing.safeHorizontal),
         )
         LazyVerticalGrid(
             columns = GridCells.Adaptive(if (isCompactWidth()) 200.dp else 180.dp),

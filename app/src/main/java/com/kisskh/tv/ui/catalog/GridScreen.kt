@@ -30,9 +30,10 @@ import com.kisskh.tv.ui.components.KhSpinner
 import com.kisskh.tv.ui.components.TitleCard
 import com.kisskh.tv.ui.components.cardGap
 import com.kisskh.tv.ui.components.focusIfRestoring
-import com.kisskh.tv.ui.components.gridCardMinWidth
+import com.kisskh.tv.ui.components.isTv
 import com.kisskh.tv.ui.components.screenContentPadding
-import com.kisskh.tv.ui.theme.FormFactor
+import com.kisskh.tv.ui.shelf.CardShape
+import com.kisskh.tv.ui.shelf.cardWidth
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhTheme
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -67,9 +68,9 @@ fun GridScreen(
     firstItemRequester: FocusRequester? = null,
 ) {
     val gap = cardGap()
-    val artOnly = KhTheme.formFactor == FormFactor.TV
+    val artOnly = isTv()
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(gridCardMinWidth()),
+        columns = GridCells.Adaptive(cardWidth(CardShape.LANDSCAPE)),
         state = state,
         modifier = modifier.fillMaxSize(),
         contentPadding = screenContentPadding(),

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,6 +32,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -44,7 +48,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.kisskh.tv.R
@@ -94,7 +97,8 @@ fun NavRail(
     modifier: Modifier = Modifier,
 ) {
     var hasFocus by remember { mutableStateOf(false) }
-    val expand by animateFloatAsState(
+    // A State, not a value: it is read only while drawing, so opening the rail never recomposes or re-lays out.
+    val expand = animateFloatAsState(
         targetValue = if (hasFocus) 1f else 0f,
         animationSpec = tween(
             durationMillis = if (hasFocus) KhMotion.RailExpandMillis else KhMotion.RailCollapseMillis,
@@ -104,13 +108,22 @@ fun NavRail(
     )
     val requesters = remember(tabs) { tabs.associateWith { FocusRequester() } }
     val currentActive by rememberUpdatedState(active)
-    val labelAlpha = ((expand - 0.35f) / 0.65f).coerceIn(0f, 1f)
+    val labelAlpha: () -> Float = { ((expand.value - 0.35f) / 0.65f).coerceIn(0f, 1f) }
 
+    // Layout always uses the collapsed width, so the page never re-measures. The expanded panel is
+    // laid out once at full width and a clip that grows (draw phase only) reveals it.
     Box(
         modifier
             .fillMaxHeight()
-            .width(lerp(RailCollapsedWidth, RailExpandedWidth, expand))
-            .background(KhColors.Background.copy(alpha = 0.94f * expand))
+            .width(RailCollapsedWidth)
+            .drawWithContent {
+                val e = expand.value
+                val right = size.width + (RailExpandedWidth - RailCollapsedWidth).toPx() * e
+                clipRect(left = 0f, top = 0f, right = right, bottom = size.height) {
+                    if (e > 0f) drawRect(KhColors.Background, alpha = 0.94f * e, size = Size(right, size.height))
+                    this@drawWithContent.drawContent()
+                }
+            }
             .onPreviewKeyEvent { it.type == KeyEventType.KeyDown && it.key == Key.DirectionRight && onEnterContent() }
             .onFocusChanged {
                 hasFocus = it.hasFocus
@@ -125,7 +138,9 @@ fun NavRail(
     ) {
         Column(
             Modifier
-                .fillMaxSize()
+                .fillMaxHeight()
+                .wrapContentWidth(Alignment.Start, unbounded = true)
+                .width(RailExpandedWidth)
                 .padding(top = KhTheme.spacing.safeVertical, bottom = KhTheme.spacing.safeVertical),
         ) {
             Box(Modifier.width(RailCollapsedWidth).height(36.dp), contentAlignment = Alignment.Center) {
@@ -165,14 +180,14 @@ private fun RailItem(
     tab: RootTab,
     label: String,
     selected: Boolean,
-    labelAlpha: Float,
+    labelAlpha: () -> Float,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     KhFocusable(
         onClick = onClick,
         modifier = modifier
-            .width(if (labelAlpha > 0.2f) RailExpandedWidth else RailCollapsedWidth)
+            .width(RailExpandedWidth)
             .height(ItemHeight)
             .semantics {
                 contentDescription = label
@@ -208,7 +223,7 @@ private fun RailItem(
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Clip,
-                modifier = Modifier.graphicsLayer { alpha = labelAlpha },
+                modifier = Modifier.graphicsLayer { alpha = labelAlpha() },
             )
         }
     }
@@ -217,14 +232,14 @@ private fun RailItem(
 @Composable
 private fun SourceItem(
     library: Library,
-    labelAlpha: Float,
+    labelAlpha: () -> Float,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     KhFocusable(
         onClick = onClick,
         modifier = modifier
-            .width(if (labelAlpha > 0.2f) RailExpandedWidth else RailCollapsedWidth)
+            .width(RailExpandedWidth)
             .height(52.dp)
             .semantics { contentDescription = "Source: ${library.label}. Switch source" },
         shape = RoundedCornerShape(8.dp),
@@ -234,7 +249,7 @@ private fun SourceItem(
             Box(Modifier.width(RailCollapsedWidth).fillMaxHeight(), contentAlignment = Alignment.Center) {
                 SourceAvatar(library, size = 34.dp)
             }
-            Column(Modifier.graphicsLayer { alpha = labelAlpha }) {
+            Column(Modifier.graphicsLayer { alpha = labelAlpha() }) {
                 Text(
                     library.label,
                     style = KhTheme.typography.railLabel,
