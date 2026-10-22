@@ -5,6 +5,7 @@ package com.kisskh.tv.ui.shell
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -38,20 +39,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
+import com.kisskh.tv.R
 import com.kisskh.tv.api.media.LIBRARY_ORDER
 import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.ui.components.KhChip
@@ -59,23 +61,14 @@ import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhMotion
 import com.kisskh.tv.ui.theme.KhTheme
 
-/** Each source gets a colour, like a Netflix profile, so the current one is known at a glance. */
-fun sourceBrush(library: Library): Brush = when (library) {
-    Library.CINEWAVE -> Brush.linearGradient(listOf(Color(0xFF1F6BFF), Color(0xFF00B8E6)))
-    Library.CINEJOY -> Brush.linearGradient(listOf(Color(0xFF7B2FF7), Color(0xFFD63AF9)))
-    Library.REELIX -> Brush.linearGradient(listOf(Color(0xFF0E8F6E), Color(0xFF3DDC97)))
-    Library.ANISUGE -> Brush.linearGradient(listOf(Color(0xFFFF6A00), Color(0xFFFFB020)))
-    Library.NEXUS -> Brush.linearGradient(listOf(Color(0xFF5B4DFF), Color(0xFF9B6BFF)))
-    Library.KISSKH -> Brush.linearGradient(listOf(Color(0xFFE50914), Color(0xFFFF6A3D)))
-}
-
-fun sourceMark(library: Library): String = when (library) {
-    Library.KISSKH -> "KH"
-    Library.CINEWAVE -> "CW"
-    Library.CINEJOY -> "CJ"
-    Library.REELIX -> "RX"
-    Library.ANISUGE -> "AS"
-    Library.NEXUS -> "NX"
+/** Each source's own site logo, so the current one is known at a glance. */
+fun sourceLogo(library: Library): Int = when (library) {
+    Library.CINEWAVE -> R.drawable.logo_cinewave
+    Library.CINEJOY -> R.drawable.logo_cinejoy
+    Library.REELIX -> R.drawable.logo_reelix
+    Library.ANISUGE -> R.drawable.logo_anisuge
+    Library.NEXUS -> R.drawable.logo_nexus
+    Library.KISSKH -> R.drawable.logo_kisskh
 }
 
 /** One line on what each source is for, shown under its name in the picker. */
@@ -88,22 +81,22 @@ private fun sourceBlurb(library: Library): String = when (library) {
     Library.KISSKH -> "Asian dramas and movies"
 }
 
-/** The source's coloured square with its two letters. */
+/** The source's site logo on a dark rounded tile. */
 @Composable
 fun SourceAvatar(library: Library, size: Dp, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(size * 0.18f)
     Box(
         modifier
             .size(size)
-            .background(sourceBrush(library), RoundedCornerShape(size * 0.18f)),
+            .clip(shape)
+            .background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            sourceMark(library),
-            color = Color.White,
-            fontSize = (size.value * 0.36f).sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = (-0.5).sp,
-            maxLines = 1,
+        Image(
+            painterResource(sourceLogo(library)),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize().padding(size * 0.08f),
         )
     }
 }

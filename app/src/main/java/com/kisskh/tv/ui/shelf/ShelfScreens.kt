@@ -1,5 +1,6 @@
 package com.kisskh.tv.ui.shelf
 
+import android.widget.Toast
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -57,11 +58,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -77,6 +80,8 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.kisskh.tv.R
 import com.kisskh.tv.api.MY_LIST_ROW
+import com.kisskh.tv.api.ReleaseDates
+import com.kisskh.tv.api.TitleMark
 import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.api.media.MediaKind
 import com.kisskh.tv.api.source.CONTINUE_ROW
@@ -320,7 +325,7 @@ private fun ShelfRowView(vm: AppViewModel, library: Library, row: ShelfRow, shap
             horizontalArrangement = Arrangement.spacedBy(cardGap()),
         ) {
             itemsIndexed(row.items, key = { i, card -> "$i:${card.source.key}:${card.id}:${card.resumeEpisode}" }) { _, card ->
-                ShelfCard(card, shape, onClick = { vm.openCard(card, library) }, modifier = Modifier.width(width))
+                ShelfCard(card, shape, onClick = { vm.openCard(card, library) }, modifier = Modifier.width(width), mark = rememberTitleMark(vm, card))
             }
         }
     }
@@ -552,6 +557,7 @@ private fun BrowseGrid(vm: AppViewModel, library: Library, kind: MediaKind, titl
                 if (state.hasMore && last >= state.items.size - 9) vm.shelf.loadMore(library, kind, code)
             }
             CardGrid(
+                vm = vm,
                 items = state.items,
                 shape = shape,
                 state = grid,
@@ -585,10 +591,12 @@ private fun BrowseBar(vm: AppViewModel, library: Library, title: String) {
 
 /**
  * A grid of cards of one [shape]. Cards are the same ones the Home rows use: same width (as the
- * minimum column), same gap, same caption rule. [badge] gives a card's top-left tag, if any.
+ * minimum column), same gap, same caption rule. [badge] gives a card's top-left tag, if any. [vm] is read for the
+ * Coming soon and Not available marks.
  */
 @Composable
 private fun CardGrid(
+    vm: AppViewModel,
     items: List<TitleCard>,
     shape: CardShape,
     state: LazyGridState,
@@ -607,7 +615,7 @@ private fun CardGrid(
         verticalArrangement = Arrangement.spacedBy(if (caption) 14.dp else gap),
     ) {
         itemsIndexed(items, key = { i, card -> "$i:${card.source.key}:${card.id}" }) { _, card ->
-            ShelfCard(card, shape, onClick = { onOpen(card) }, caption = caption, badge = badge(card))
+            ShelfCard(card, shape, onClick = { onOpen(card) }, caption = caption, badge = badge(card), mark = rememberTitleMark(vm, card))
         }
         item(key = "footer", span = { GridItemSpan(maxLineSpan) }) {
             Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) { footer() }
@@ -691,6 +699,7 @@ fun ShelfSearch(vm: AppViewModel, library: Library) {
                 // carries its source name as the tag. A single source uses its own Home shape.
                 val shape = if (all) CardShape.LANDSCAPE else shapeFor(s.data)
                 CardGrid(
+                    vm = vm,
                     items = s.data,
                     shape = shape,
                     state = grid,
@@ -764,8 +773,8 @@ private fun BackCircle(vm: AppViewModel, modifier: Modifier = Modifier) {
     }
 }
 
-/** What the big button on a title page says and plays. */
-private data class MainAction(val label: String, val play: () -> Unit)
+/** What the big button on a title page says and plays. [dimmed] draws it grey: it only explains why nothing plays. */
+private data class MainAction(val label: String, val dimmed: Boolean = false, val play: () -> Unit)
 
 @Composable
 private fun DetailBody(vm: AppViewModel, library: Library, dest: Dest.TitlePage, detail: TitleDetail) {
@@ -777,6 +786,12 @@ private fun DetailBody(vm: AppViewModel, library: Library, dest: Dest.TitlePage,
     val savedVersion by store.version.collectAsStateWithLifecycle()
     val inList = remember(savedVersion, card) { store.inList(card) }
     val titleWatched = remember(savedVersion, card) { store.isWatched(card) }
+    // Coming soon (by release date) or Not available (every server failed last time). The title stays open either way.
+    val availabilityVersion by vm.availability.version.collectAsStateWithLifecycle()
+    val mark = remember(availabilityVersion, card) { vm.availability.markFor(card) }
+    val comingSoon = mark as? TitleMark.ComingSoon
+    val context = LocalContext.current
+    val notOutYet = { Toast.makeText(context, "Not out yet. Comes out ${ReleaseDates.long(comingSoon?.date)}.", Toast.LENGTH_SHORT).show() }
     // Where the viewer left off on this title, newest first. Opens on that season.
     val last = remember(library, card.id) { vm.lastWatched(library, card) }
     // A title marked watched plays from the start: never "Resume", no "Continue" episode.
@@ -802,10 +817,13 @@ private fun DetailBody(vm: AppViewModel, library: Library, dest: Dest.TitlePage,
         library != Library.KISSKH -> EpisodeRef(card.id, 0, 1, "Movie", card.artwork)
         else -> null
     }
-    val movieDownload: (@Composable (Modifier, Boolean) -> Unit)? = if (movieEpisode == null) null else { size, stacked ->
+    val movieDownload: (@Composable (Modifier, Boolean) -> Unit)? = if (movieEpisode == null || comingSoon != null) null else { size, stacked ->
         DownloadActionButton(titleDownloads, movieEpisode, episodes, card.name, size, stacked)
     }
-    val action = remember(card, episodes, resumeFrom, seasonNumber) { mainAction(vm, library, card, movie, seasonNumber, episodes, resumeFrom) }
+    val action = remember(card, episodes, resumeFrom, seasonNumber, comingSoon) {
+        if (comingSoon != null) MainAction("Coming soon", dimmed = true) { notOutYet() }
+        else mainAction(vm, library, card, movie, seasonNumber, episodes, resumeFrom)
+    }
     // Play on Home opened this page: start the main action once the episodes are known.
     LaunchedEffect(dest.autoplay, remote is UiState.Loading) {
         if (dest.autoplay && remote !is UiState.Loading) {
@@ -823,6 +841,7 @@ private fun DetailBody(vm: AppViewModel, library: Library, dest: Dest.TitlePage,
             item(key = "header") {
                 DetailHeader(
                     detail, library, movie, seasons.size, action, playFocus,
+                    mark = mark,
                     inList = inList,
                     watched = titleWatched,
                     onToggleList = { store.toggleList(card) },
@@ -877,7 +896,8 @@ private fun DetailBody(vm: AppViewModel, library: Library, dest: Dest.TitlePage,
                             progress = vm.episodeProgress(library, card, episode),
                             current = current,
                             watched = watched,
-                            onClick = { vm.playTitle(library, card, episode, eps.data) },
+                            onClick = { if (comingSoon != null) notOutYet() else vm.playTitle(library, card, episode, eps.data) },
+                            showDownload = comingSoon == null,
                             downloads = titleDownloads,
                             episodes = eps.data,
                             onToggleWatched = {
@@ -893,6 +913,17 @@ private fun DetailBody(vm: AppViewModel, library: Library, dest: Dest.TitlePage,
     }
 }
 
+/** The line under a title's facts that says why it may not play: the release date, or that every server failed. */
+@Composable
+private fun MarkNote(mark: TitleMark?, modifier: Modifier = Modifier) {
+    val text = when (mark) {
+        is TitleMark.ComingSoon -> "Coming ${ReleaseDates.long(mark.date) ?: mark.date}"
+        TitleMark.Unavailable -> "Not available right now \u2014 every server failed. Try again later."
+        null -> return
+    }
+    Text(text, style = KhTheme.typography.caption, color = KhColors.TextPrimary, modifier = modifier)
+}
+
 @Composable
 private fun DetailHeader(
     detail: TitleDetail,
@@ -901,6 +932,7 @@ private fun DetailHeader(
     seasonCount: Int,
     action: MainAction,
     playFocus: FocusRequester,
+    mark: TitleMark?,
     inList: Boolean,
     watched: Boolean,
     onToggleList: () -> Unit,
@@ -928,15 +960,16 @@ private fun DetailHeader(
                 ) {
                     Text(card.name, style = KhTheme.typography.display, color = KhColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(meta, style = KhTheme.typography.meta, color = KhColors.TextSecondary)
+                    MarkNote(mark)
                     if (detail.description.isNotBlank()) {
                         Text(detail.description, style = KhTheme.typography.synopsis, color = KhColors.TextSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     }
                     KhActionButton(
                         action.label,
                         onClick = action.play,
-                        primary = true,
-                        icon = Icons.Filled.PlayArrow,
-                        modifier = Modifier.padding(top = 6.dp).widthIn(min = 200.dp).focusRequester(playFocus),
+                        primary = !action.dimmed,
+                        icon = if (action.dimmed) null else Icons.Filled.PlayArrow,
+                        modifier = Modifier.padding(top = 6.dp).widthIn(min = 200.dp).alpha(if (action.dimmed) 0.7f else 1f).focusRequester(playFocus),
                     )
                     SavedActions(inList, watched, onToggleList, onToggleWatched, buttonWidth = 150.dp, download = download)
                 }
@@ -959,13 +992,14 @@ private fun DetailHeader(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(meta, style = KhTheme.typography.caption, color = KhColors.TextSecondary)
+                    MarkNote(mark)
                     KhActionButton(
                         action.label,
                         onClick = action.play,
-                        primary = true,
-                        icon = Icons.Filled.PlayArrow,
+                        primary = !action.dimmed,
+                        icon = if (action.dimmed) null else Icons.Filled.PlayArrow,
                         height = 48.dp,
-                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp).focusRequester(playFocus),
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp).alpha(if (action.dimmed) 0.7f else 1f).focusRequester(playFocus),
                     )
                     SavedActions(inList, watched, onToggleList, onToggleWatched, download = download)
                     if (detail.description.isNotBlank()) {
@@ -1005,6 +1039,7 @@ private fun EpisodeRow(
     downloads: TitleDownloads,
     episodes: List<EpisodeRef>,
     onToggleWatched: () -> Unit,
+    showDownload: Boolean = true,
 ) {
     val title = episodeTitle(episode)
     // A watched episode shows a full bar, whatever was saved while it played.
@@ -1062,7 +1097,7 @@ private fun EpisodeRow(
                 }
             }
         }
-        DownloadButton(downloads, episode, episodes, title)
+        if (showDownload) DownloadButton(downloads, episode, episodes, title)
         WatchedToggle(watched, title, onToggleWatched)
     }
 }

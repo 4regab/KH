@@ -12,5 +12,7 @@
     <string name="player_prev">Previous episode</string>
     <string name="player_servers">Servers</string>
     <string name="player_tracks">Audio and subtitles</string>
+    <string name="player_zoom_fill">Zoom to fill</string>
+    <string name="player_zoom_fit">Fit to screen</string>
     <string name="download_channel_name">Downloads</string>
 </resources>

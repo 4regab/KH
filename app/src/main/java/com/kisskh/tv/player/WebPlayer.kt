@@ -25,6 +25,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -143,6 +145,20 @@ fun WebPlayer(
     var playing by remember { mutableStateOf(false) }
     var clock by remember { mutableStateOf<VideoClock?>(null) }
     val bridge = remember { VideoBridge { clock = it } }
+    var fill by remember { mutableStateOf(PlayerZoom.isFill(context)) }
+    var zoomHint by remember { mutableStateOf<String?>(null) }
+    // False when the WebView is too old to carry the bridge: the Fit / Fill button would do nothing, so hide it.
+    var zoomable by remember { mutableStateOf(false) }
+
+    fun setZoom(next: Boolean) {
+        if (next == fill) return
+        fill = next
+        PlayerZoom.save(context, next)
+        bridge.setZoom(next)
+        zoomHint = PlayerZoom.hint(next)
+    }
+    // A saved Fill reaches each page as soon as its video reports in. Fit is the page's own look, left alone.
+    LaunchedEffect(bridge) { if (fill) bridge.setZoom(true) }
 
     /** Play or pause: through the video itself when it can be reached, else a tap on the page. */
     fun toggle() {
@@ -312,8 +328,11 @@ fun WebPlayer(
                 }
                 // Every touch still reaches the page. On a touch screen only a touch in the top strip shows our
                 // bar: the rest of the page is the site's own controls (captions, seek), which must stay uncovered.
+                // A pinch is read here too, never consumed. ponytail: a page that zooms itself on pinch will do
+                // both; the Fit / Fill button is the fallback.
                 .pointerInput(tv) {
                     awaitPointerEventScope {
+                        var pinch = 1f
                         while (true) {
                             val event = awaitPointerEvent()
                             val now = SystemClock.uptimeMillis()
@@ -321,6 +340,14 @@ fun WebPlayer(
                             if (tv || event.changes.any { it.position.y < TOUCH_STRIP.toPx() }) {
                                 lastKey = now
                                 overlay = true
+                            }
+                            if (!tv && zoomable) {
+                                if (event.changes.count { it.pressed } >= 2) {
+                                    pinch *= event.calculateZoom()
+                                } else if (pinch != 1f) {
+                                    setZoom(PlayerZoom.after(fill, pinch))
+                                    pinch = 1f
+                                }
                             }
                         }
                     }
@@ -357,7 +384,7 @@ fun WebPlayer(
                         ): Boolean = false
                     }
                     webViewClient = EmbedClient(gate)
-                    bridge.install(this)
+                    zoomable = bridge.install(this)
                     web.value = this
                 }
             },
@@ -401,6 +428,10 @@ fun WebPlayer(
                         onFocus = ::poke,
                         announce = true,
                     ) {
+                        if (zoomable && !gaveUp) {
+                            ZoomButton(fill, { setZoom(!fill); poke() }, ::poke)
+                            Spacer(Modifier.width(4.dp))
+                        }
                         if (onNext != null) {
                             RoundIcon(R.drawable.ic_player_next, R.string.player_next, onNext, ::poke)
                             Spacer(Modifier.width(4.dp))
@@ -459,12 +490,16 @@ fun WebPlayer(
                         showServers = sources.size > 1 || onServers != null,
                         onServers = { if (onServers != null) onServers() else picking = true },
                         onNext = onNext,
+                        fill = fill.takeIf { zoomable },
+                        onZoom = { setZoom(!fill); poke() },
                         onFocus = ::poke,
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
             }
         }
+
+        ZoomHint(zoomHint, onDone = { zoomHint = null }, modifier = Modifier.align(BiasAlignment(0f, -0.55f)))
 
         if (picking) {
             ServerSheet(
@@ -542,6 +577,9 @@ private fun BottomBar(
     showServers: Boolean,
     onServers: () -> Unit,
     onNext: (() -> Unit)?,
+    /** Fit / Fill state, or null when the page's video can't be zoomed (no button). */
+    fill: Boolean?,
+    onZoom: () -> Unit,
     onFocus: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -565,6 +603,10 @@ private fun BottomBar(
               )
               Text(hint, color = KhColors.TextSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
           }
+          if (fill != null) {
+              ZoomButton(fill, onZoom, onFocus)
+              Spacer(Modifier.width(8.dp))
+          }
           if (onNext != null) {
               RoundIcon(R.drawable.ic_player_next, R.string.player_next, onNext, onFocus)
               Spacer(Modifier.width(8.dp))
@@ -574,6 +616,17 @@ private fun BottomBar(
           }
       }
     }
+}
+
+/** The Fit / Fill button: shows what a press will do (Fill while the video fits, Fit while it fills). */
+@Composable
+private fun ZoomButton(fill: Boolean, onClick: () -> Unit, onFocus: () -> Unit) {
+    RoundIcon(
+        if (fill) R.drawable.ic_player_zoom_fit else R.drawable.ic_player_zoom_fill,
+        if (fill) R.string.player_zoom_fit else R.string.player_zoom_fill,
+        onClick,
+        onFocus,
+    )
 }
 
 /** The 96 dp Play / Pause in the middle, the same size and place as the KissKH player's. OK on it taps the page. */

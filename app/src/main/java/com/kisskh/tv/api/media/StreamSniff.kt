@@ -56,6 +56,32 @@ object StreamSniff {
     }
 }
 
+/**
+ * Which language a stream's audio is in. A server can quietly fall back to a dub (VidZee's English
+ * servers fail and its page plays Hindi or Tamil instead), and only the media itself says so.
+ */
+object AudioCheck {
+    private val unknown = setOf("", "und", "mul", "zxx")
+
+    /** "en-US" -> "en", "ta_IN" -> "ta". Null when the language is not known. */
+    private fun code(language: String?): String? =
+        language?.trim()?.lowercase()?.substringBefore('-')?.substringBefore('_')?.takeIf { it !in unknown }
+
+    /** True only when there is audio, every track has a known language, and none of them is English. */
+    fun foreignOnly(languages: List<String?>): Boolean {
+        if (languages.isEmpty()) return false
+        val codes = languages.map { code(it) ?: return false }
+        return codes.none { it == "en" || it == "eng" }
+    }
+
+    /** A short name for a message: "Tamil", else the code in capitals ("XX"). */
+    fun label(languages: List<String?>): String {
+        val code = languages.firstNotNullOfOrNull { code(it) } ?: return "another language"
+        val name = java.util.Locale.forLanguageTag(code).getDisplayLanguage(java.util.Locale.ENGLISH)
+        return name.takeIf { it.isNotBlank() && !it.equals(code, ignoreCase = true) } ?: code.uppercase()
+    }
+}
+
 /** CineJoy's own watch page. Its default servers need no Febbox token. */
 object CineJoyWeb {
     const val SITE = "https://cinejoy.pk"

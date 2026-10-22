@@ -55,7 +55,7 @@ import kotlin.coroutines.resumeWithException
 private const val TAG = "KhDownloads"
 private const val PREFS = "downloads"
 private const val KEY_ASKED_NOTIFICATIONS = "asked_notifications"
-private const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Linux; Android 14) Chrome/130 Safari/537.36"
+internal const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Linux; Android 14) Chrome/130 Safari/537.36"
 private const val POLL_MS = 1_000L
 
 /** How long a tapped Download shows "preparing" at most, while the service picks the request up. */
@@ -135,6 +135,8 @@ class KhDownloads private constructor(context: Context) {
             DefaultDownloaderFactory(upstream, executor).createDownloader(request)
         }
         DownloadManager(app, DefaultDownloadIndex(databaseProvider), factory).also { created ->
+            // One at a time: three at once filled the Wi-Fi link and posters timed out. The rest wait queued.
+            created.maxParallelDownloads = 1
             created.addListener(listener)
             if (created.isInitialized) listener.onInitialized(created)
         }

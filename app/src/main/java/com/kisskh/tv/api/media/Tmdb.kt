@@ -91,6 +91,8 @@ data class TmdbTitle(
     val backdrop: String?,
     val vote: Double?,
     val year: String?,
+    /** The full release date (release_date for movies, first_air_date for TV), yyyy-MM-dd. Null when TMDB has none. */
+    val releaseDate: String? = null,
 ) {
     /** 16:9 art. Backdrop first, poster when that is missing. */
     val artwork: String? get() = backdrop ?: poster
@@ -215,6 +217,7 @@ object TmdbJson {
                     backdrop = TmdbPaths.image(backdrop, "w780"),
                     vote = vote,
                     year = yearOf(date),
+                    releaseDate = fullDate(date),
                 ),
                 seasons = seasons,
                 recommendations = recommendations,
@@ -364,6 +367,7 @@ object TmdbJson {
             backdrop = TmdbPaths.image(backdrop, "w780"),
             vote = vote,
             year = yearOf(date),
+            releaseDate = fullDate(date),
         )
     }
 
@@ -533,6 +537,8 @@ object TmdbJson {
         }
         return items
     }
+
+    private fun fullDate(date: String?): String? = date?.trim()?.takeIf { it.length == 10 }
 
     private fun yearOf(date: String?): String? =
         date?.take(4)?.takeIf { it.length == 4 && it.all(Char::isDigit) }

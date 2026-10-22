@@ -1,6 +1,7 @@
 package com.kisskh.tv.ui.shelf
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
@@ -10,6 +11,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -19,13 +22,17 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kisskh.tv.api.MY_LIST_ROW
+import com.kisskh.tv.api.ReleaseDates
+import com.kisskh.tv.api.TitleMark
 import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.api.media.MediaKind
 import com.kisskh.tv.api.source.CONTINUE_ROW
 import com.kisskh.tv.api.source.ShelfRow
 import com.kisskh.tv.api.source.TitleCard
 import androidx.tv.material3.Text
+import com.kisskh.tv.ui.AppViewModel
 import com.kisskh.tv.ui.components.Artwork
 import com.kisskh.tv.ui.theme.FormFactor
 import com.kisskh.tv.ui.theme.KhColors
@@ -70,6 +77,27 @@ internal fun continueBadge(card: TitleCard): String? = when {
     else -> "S${card.resumeSeason.coerceAtLeast(1)} E${card.resumeNumber.coerceAtLeast(1)}"
 }
 
+/** The small pills a mark shows on a card: ["Coming soon", "Dec 16"] or ["Not available"]. */
+internal fun markPills(mark: TitleMark?): List<String> = when (mark) {
+    is TitleMark.ComingSoon -> listOfNotNull("Coming soon", ReleaseDates.short(mark.date))
+    TitleMark.Unavailable -> listOf("Not available")
+    null -> emptyList()
+}
+
+/** What a screen reader says for a mark. */
+internal fun markSpoken(mark: TitleMark?): String? = when (mark) {
+    is TitleMark.ComingSoon -> listOfNotNull("Coming soon", ReleaseDates.long(mark.date)).joinToString(", ")
+    TitleMark.Unavailable -> "Not available"
+    null -> null
+}
+
+/** The mark of [card] (Coming soon, Not available or none). It redraws when the learned marks change. */
+@Composable
+fun rememberTitleMark(vm: AppViewModel, card: TitleCard): TitleMark? {
+    val version by vm.availability.version.collectAsStateWithLifecycle()
+    return remember(card, version) { vm.availability.markFor(card) }
+}
+
 @Composable
 fun cardWidth(shape: CardShape): Dp {
     val tv = KhTheme.formFactor == FormFactor.TV
@@ -88,6 +116,7 @@ fun cardGap(): Dp = if (KhTheme.formFactor == FormFactor.TV) 12.dp else 8.dp
  * art, so they show no caption; landscape cards name the title underneath on one line.
  * A started title shows a red progress bar. [badge] is a small tag over the art's top left corner:
  * by default the [continueBadge] of a started title, or e.g. the source name in all-source search.
+ * [mark] adds "Coming soon" or "Not available" pills under it. The title stays open either way.
  */
 @Composable
 fun ShelfCard(
@@ -97,10 +126,11 @@ fun ShelfCard(
     modifier: Modifier = Modifier,
     caption: Boolean = shape == CardShape.LANDSCAPE,
     badge: String? = continueBadge(card),
+    mark: TitleMark? = null,
 ) {
     // A poster card never shows a wide still cropped tall: without a poster it shows the title on a tile.
     val art = if (shape == CardShape.POSTER) card.poster else card.artwork
-    val spoken = listOfNotNull(card.name, badge).joinToString(", ")
+    val spoken = listOfNotNull(card.name, badge, markSpoken(mark)).joinToString(", ")
     Column(modifier) {
         KhFocusable(
             onClick = onClick,
@@ -121,8 +151,11 @@ fun ShelfCard(
                     Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.28f)))
                     Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(progress.coerceIn(0.02f, 1f)).height(3.dp).background(KhColors.Brand))
                 }
-                if (!badge.isNullOrBlank()) {
-                    Badge(badge, Modifier.align(Alignment.TopStart).padding(6.dp))
+                val pills = listOfNotNull(badge?.takeIf { it.isNotBlank() }) + markPills(mark)
+                if (pills.isNotEmpty()) {
+                    Column(Modifier.align(Alignment.TopStart).padding(6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        pills.forEach { Badge(it) }
+                    }
                 }
             }
         }

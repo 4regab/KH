@@ -5,7 +5,9 @@ import android.net.Uri
 import android.view.GestureDetector
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
+import android.widget.ImageButton
 import android.widget.TextView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
@@ -18,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -39,6 +42,7 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
 import com.kisskh.tv.R
@@ -90,8 +94,11 @@ fun VideoPlayer(
     preferEnglishAudio: Boolean = true,
     /** Play a saved copy from the offline cache instead of [url]. */
     offline: OfflineSource? = null,
+    /** Called once, when the stream's tracks are known, with the language of every audio track. */
+    onAudioLanguages: ((List<String?>) -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val reportAudio by rememberUpdatedState(onAudioLanguages)
     val reportProgress by rememberUpdatedState(onProgress)
     val reportError by rememberUpdatedState(onPlaybackError)
     val player = remember(url, requestHeaders, offline) {
@@ -152,10 +159,31 @@ fun VideoPlayer(
     val playerView = remember { mutableStateOf<PlayerView?>(null) }
     var controlsVisible by remember { mutableStateOf(true) }
     var showTracks by remember { mutableStateOf(false) }
+    var fill by remember { mutableStateOf(PlayerZoom.isFill(context)) }
+    var zoomHint by remember { mutableStateOf<String?>(null) }
+
+    fun setZoom(next: Boolean) {
+        if (next == fill) return
+        fill = next
+        PlayerZoom.save(context, next)
+        zoomHint = PlayerZoom.hint(next)
+    }
 
     DisposableEffect(player) {
         val stats = PlaybackStats(url)
+        var audioReported = false
         val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                if (audioReported) return
+                val languages = tracks.groups
+                    .filter { it.type == C.TRACK_TYPE_AUDIO }
+                    .flatMap { g -> (0 until g.length).map { g.getTrackFormat(it).language } }
+                // Some streams list audio only after the first segment, so wait for a non-empty list.
+                if (languages.isEmpty()) return
+                audioReported = true
+                reportAudio?.invoke(languages)
+            }
+
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!isPlaying) reportProgress(player.currentPosition, player.duration)
             }
@@ -232,7 +260,7 @@ fun VideoPlayer(
                 view.findViewById<TextView>(R.id.kh_player_label).text = label
                 view.showController()
                 view.requestFocus()
-                if (!isTelevision(viewContext)) view.enableTouchGestures(player)
+                if (!isTelevision(viewContext)) view.enableTouchGestures(player) { scale -> setZoom(PlayerZoom.after(fill, scale)) }
                 playerView.value = view
                 view
             },
@@ -258,21 +286,32 @@ fun VideoPlayer(
                     setOnClickListener { onServers?.invoke() }
                 }
                 view.findViewById<View>(R.id.kh_player_tracks).setOnClickListener { showTracks = true }
+                view.resizeMode = if (fill) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                view.findViewById<ImageButton>(R.id.kh_player_zoom).apply {
+                    setImageResource(if (fill) R.drawable.ic_player_zoom_fit else R.drawable.ic_player_zoom_fill)
+                    contentDescription = context.getString(if (fill) R.string.player_zoom_fit else R.string.player_zoom_fill)
+                    setOnClickListener { setZoom(!fill) }
+                }
             },
         )
+        ZoomHint(zoomHint, onDone = { zoomHint = null }, modifier = Modifier.align(BiasAlignment(0f, ZOOM_HINT_BIAS)))
         if (showTracks) {
             TrackSheet(player, onClose = { showTracks = false })
         }
     }
 }
 
+/** The zoom hint sits a little above the middle, clear of the Play button. */
+private const val ZOOM_HINT_BIAS = -0.55f
+
 /**
  * Phone touch, like YouTube and Netflix: one tap shows or hides the controls, a double tap on the left
- * or right half skips back or forward 10 s. The controls' own buttons still get their taps first.
+ * or right half skips back or forward 10 s, and a pinch zooms. The controls' own buttons still get their
+ * taps first. [onPinch] gets the whole pinch's scale (above 1 is out) when the fingers lift.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @SuppressLint("ClickableViewAccessibility")
-private fun PlayerView.enableTouchGestures(player: Player) {
+private fun PlayerView.enableTouchGestures(player: Player, onPinch: (Float) -> Unit) {
     // TalkBack's click goes through performClick, which then also hides the controls.
     controllerHideOnTouch = true
     val detector = GestureDetector(
@@ -291,7 +330,29 @@ private fun PlayerView.enableTouchGestures(player: Player) {
             }
         },
     )
-    setOnTouchListener { _, event -> detector.onTouchEvent(event) }
+    var pinch = 1f
+    val scaler = ScaleGestureDetector(
+        context,
+        object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                pinch = 1f
+                return true
+            }
+
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                pinch *= detector.scaleFactor
+                return true
+            }
+
+            override fun onScaleEnd(detector: ScaleGestureDetector) = onPinch(pinch)
+        },
+    )
+    scaler.isQuickScaleEnabled = false // a double tap then drag would clash with the double-tap skip
+    setOnTouchListener { _, event ->
+        scaler.onTouchEvent(event)
+        // Taps and double taps decide the answer, as before. A pinch adds to it, never replaces it.
+        detector.onTouchEvent(event)
+    }
 }
 
 object PlayerHeaders {

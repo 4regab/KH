@@ -467,5 +467,6 @@ private fun TmdbTitle.card(library: Library, forced: MediaKind? = null): TitleCa
         year = year,
         overview = overview.ifBlank { null },
         meta = voteText(),
+        releaseDate = releaseDate,
     )
 }

@@ -26,6 +26,8 @@ data class TitleCard(
     val resumeNumber: Int = 0,
     /** How far the viewer got (0..1), on Continue cards whose position is known. */
     val progress: Float? = null,
+    /** Full release date (yyyy-MM-dd) when the source gives one. Only TMDB-backed sources do today. */
+    val releaseDate: String? = null,
 ) {
     val artwork: String? get() = backdrop ?: poster
 }

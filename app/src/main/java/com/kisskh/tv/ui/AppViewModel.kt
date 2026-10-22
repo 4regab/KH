@@ -68,6 +68,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** My List and Watched marks (see [SavedTitles]). */
     val saved = com.kisskh.tv.api.SavedTitles.create(app)
 
+    /** Titles where every server failed, shown as Not available (see [com.kisskh.tv.api.Availability]). */
+    val availability = com.kisskh.tv.api.Availability.create(app)
+
     /** Offline copies (see [com.kisskh.tv.download.KhDownloads]). */
     val downloads = com.kisskh.tv.download.KhDownloads.get(app)
 

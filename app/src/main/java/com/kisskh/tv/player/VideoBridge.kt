@@ -52,7 +52,7 @@ data class VideoClock(val position: Double, val duration: Double, val paused: Bo
 /**
  * A line to the page's video, whatever frame it plays in. Embed players put the video in another
  * site's frame that the app's own scripts cannot reach, so a tiny script is added to every frame. It
- * reports the biggest video's time twice a second and obeys seek and play/pause.
+ * reports the biggest video's time twice a second and obeys seek, play/pause and fit/fill.
  *
  * Needs WebView's document-start script and message listener features (WebView 87 and up). On older
  * WebViews [install] returns false and the player keeps its tap-only controls.
@@ -61,7 +61,7 @@ class VideoBridge(private val onClock: (VideoClock?) -> Unit) {
     private var proxy: JavaScriptReplyProxy? = null
     private var proxyDuration = 0.0
     private var heardAt = 0L
-
+    private var zoom: Boolean? = null
     fun install(view: WebView): Boolean {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) ||
             !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
@@ -75,10 +75,13 @@ class VideoBridge(private val onClock: (VideoClock?) -> Unit) {
             // Several frames can hold a video (an ad, a preview). Follow the longest, or whichever still talks.
             val stale = now - heardAt > STALE_MS
             if (reply == proxy || stale || clock.duration > proxyDuration) {
+                val fresh = reply != proxy
                 proxy = reply
                 proxyDuration = clock.duration
                 heardAt = now
                 onClock(clock)
+                // A new page or frame starts at the site's own look: give it the chosen one.
+                if (fresh) sendZoom()
             }
         }
         WebViewCompat.addDocumentStartJavaScript(view, SCRIPT, setOf("*"))
@@ -103,6 +106,20 @@ class VideoBridge(private val onClock: (VideoClock?) -> Unit) {
     /** Pause the page's video (the app is leaving the screen). */
     fun pause() = send("{\"c\":\"pause\"}")
 
+    /**
+     * Make every video in the page's frame fill its box (cropped, `object-fit: cover`) or fit inside it
+     * (`contain`). Remembered, and sent again to each new page. Until this is first called the page keeps its own look.
+     * ponytail: only the frame that holds the longest video hears it; a video in a second frame is left alone.
+     */
+    fun setZoom(fill: Boolean) {
+        zoom = fill
+        sendZoom()
+    }
+
+    private fun sendZoom() {
+        zoom?.let { send("{\"c\":\"zoom\",\"f\":$it}") }
+    }
+
     private fun send(json: String): Boolean {
         val target = proxy ?: return false
         return runCatching { target.postMessage(json) }.isSuccess
@@ -125,12 +142,20 @@ class VideoBridge(private val onClock: (VideoClock?) -> Unit) {
     b.postMessage(JSON.stringify({ t: v.currentTime, d: v.duration, p: v.paused }));
   }
   setInterval(send, 500);
+  var fillAll = null;
+  function fit(){
+    if (fillAll === null) return;
+    var list = document.getElementsByTagName('video');
+    for (var i = 0; i < list.length; i++) list[i].style.setProperty('object-fit', fillAll ? 'cover' : 'contain', 'important');
+  }
+  setInterval(fit, 500);
   function listen(){
     var b = window.khBridge;
     if (!b) { setTimeout(listen, 300); return; }
     b.onmessage = function(e){
       var m, v = vid();
       try { m = JSON.parse(e.data); } catch (x) { return; }
+      if (m.c === 'zoom') { fillAll = !!m.f; fit(); return; }
       if (!v) return;
       if (m.c === 'seek') { v.currentTime = Math.max(0, Math.min(v.duration - 1, m.t)); send(); }
       else if (m.c === 'pause') { v.pause(); send(); }

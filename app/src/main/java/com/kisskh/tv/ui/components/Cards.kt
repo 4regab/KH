@@ -1,5 +1,6 @@
 package com.kisskh.tv.ui.components
 
+import android.os.SystemClock
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -52,6 +53,9 @@ object KhCardSize {
     val PhoneWidth = 150.dp
 }
 
+/** An image that takes longer than this to appear is logged ("slow"). Reading the log shows if downloads starve posters. */
+private const val SLOW_IMAGE_MS = 1_500L
+
 /** Addresses already logged by [Artwork] as failed. */
 // ponytail: grows by one short string per broken address for the life of the process; fine for a session.
 private val loggedFailures: MutableSet<String> = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())
@@ -99,12 +103,18 @@ fun Artwork(
                     .crossfade(fadeMillis)
                     .build()
             }
+            // When this image started loading, to log the ones that took long.
+            val startedAt = remember(url) { SystemClock.elapsedRealtime() }
             AsyncImage(
                 model = request,
                 contentDescription = null,
                 contentScale = if (fitPortrait && portrait) ContentScale.Fit else ContentScale.Crop,
                 alignment = if (fitPortrait && portrait) Alignment.CenterEnd else Alignment.Center,
-                onSuccess = { portrait = it.painter.intrinsicSize.let { s -> s.height > s.width } },
+                onSuccess = {
+                    portrait = it.painter.intrinsicSize.let { s -> s.height > s.width }
+                    val took = SystemClock.elapsedRealtime() - startedAt
+                    if (took > SLOW_IMAGE_MS) Log.i("KhImage", "slow ${took}ms $url")
+                },
                 onError = { state ->
                     failed = true
                     // Once per address, so a failing grid does not flood the log.

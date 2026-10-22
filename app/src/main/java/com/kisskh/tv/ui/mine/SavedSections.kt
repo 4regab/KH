@@ -27,6 +27,7 @@ import com.kisskh.tv.ui.AppViewModel
 import com.kisskh.tv.ui.shelf.ShelfCard
 import com.kisskh.tv.ui.shelf.cardWidth
 import com.kisskh.tv.ui.shelf.openCard
+import com.kisskh.tv.ui.shelf.rememberTitleMark
 import com.kisskh.tv.ui.shelf.shapeFor
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhTheme
@@ -82,7 +83,7 @@ private fun SavedRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(cards, key = { "${it.source.key}:${it.kind}:${it.id}" }) { card ->
-                    ShelfCard(card, shape, onClick = { vm.openCard(card, library) }, modifier = Modifier.width(width))
+                    ShelfCard(card, shape, onClick = { vm.openCard(card, library) }, modifier = Modifier.width(width), mark = rememberTitleMark(vm, card))
                 }
             }
         }
