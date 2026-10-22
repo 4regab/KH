@@ -136,7 +136,7 @@ fun ShelfHome(vm: AppViewModel, library: Library) {
             is UiState.Empty -> EmptyState(s.message ?: "Nothing to show right now.")
             is UiState.Success -> if (tv) TvHome(vm, library, s.data, list) else PhoneHome(vm, library, s.data, list)
         }
-        if (!tv) ShelfTopBar(vm, library, barAlpha, showCategories = true)
+        if (!tv) ShelfTopBar(vm, library, barAlpha)
     }
 }
 
