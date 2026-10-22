@@ -498,7 +498,7 @@ private fun PhoneHome(vm: AppViewModel, library: Library, rows: List<ShelfRow>, 
             if (hero != null) {
                 PhoneHero(vm, library, hero, shape)
             } else {
-                Spacer(Modifier.height(phoneHomeHeroTop() + 16.dp))
+                Spacer(Modifier.height(phoneHeroTop() + 16.dp))
             }
         }
         items(rows, key = { "row:" + it.title }) { row ->
@@ -539,7 +539,7 @@ private fun PhoneHero(vm: AppViewModel, library: Library, hero: TitleCard, shape
     val version by vm.saved.version.collectAsStateWithLifecycle()
     val inList = remember(version, hero) { vm.saved.inList(hero) }
     val listSpoken = if (inList) "Remove from My List" else "Add to My List"
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(start = edge(), end = edge(), top = phoneHomeHeroTop())) {
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(start = edge(), end = edge(), top = phoneHeroTop())) {
         val height = phoneHeroHeight(maxWidth, LocalConfiguration.current.screenHeightDp.dp, shape)
         Column(Modifier.fillMaxWidth()) {
             KhFocusable(
@@ -659,7 +659,7 @@ private fun HomeSkeleton(shape: CardShape) {
         }
     } else {
         Column(Modifier.fillMaxSize()) {
-            BoxWithConstraints(Modifier.fillMaxWidth().padding(start = edge(), end = edge(), top = phoneHomeHeroTop())) {
+            BoxWithConstraints(Modifier.fillMaxWidth().padding(start = edge(), end = edge(), top = phoneHeroTop())) {
                 val height = phoneHeroHeight(maxWidth, LocalConfiguration.current.screenHeightDp.dp, shape)
                 Column {
                     Box(Modifier.fillMaxWidth().height(height).background(KhColors.Surface, corner))

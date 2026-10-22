@@ -15,9 +15,6 @@ import com.kisskh.tv.ui.components.isTv
 
 internal val TopBarHeight = 56.dp
 
-/** The row of category chips under the phone Home top bar (48 dp chips plus 4 dp below). */
-internal val ChipRowHeight = 52.dp
-
 /** Space above a row's title: the same for every row. TV rows add their own focus room below. */
 @Composable
 internal fun rowTop(): Dp = if (isTv()) 12.dp else 20.dp
@@ -25,10 +22,6 @@ internal fun rowTop(): Dp = if (isTv()) 12.dp else 20.dp
 /** Top of the hero on a phone: under the status bar and the top bar. */
 @Composable
 internal fun phoneHeroTop(): Dp = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + TopBarHeight + 8.dp
-
-/** Top of the phone Home hero, which also clears the category chips. */
-@Composable
-internal fun phoneHomeHeroTop(): Dp = phoneHeroTop() + ChipRowHeight
 
 /** Height of the TV billboard card for a card [width]. */
 internal fun tvHeroHeight(width: Dp): Dp = (width * 0.40f).coerceIn(280.dp, 440.dp)

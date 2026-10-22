@@ -6,6 +6,8 @@ import com.kisskh.tv.api.media.MediaKind
 import com.kisskh.tv.api.source.ShelfRow
 import com.kisskh.tv.api.source.TitleCard
 import com.kisskh.tv.ui.RootTab
+import com.kisskh.tv.ui.NavState
+import com.kisskh.tv.ui.tabs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -53,10 +55,15 @@ class TvHomeLayoutTest {
         assertTrue(homeFocusKey("Continue Watching", card("1")) != homeFocusKey("Trending", card("1")))
     }
 
-    @Test fun phoneChipsAreTheLibrarysCategories() {
-        assertEquals(listOf(RootTab.SERIES, RootTab.MOVIES, RootTab.COUNTRIES), categoryTabs(Library.KISSKH))
-        assertEquals(listOf(RootTab.MOVIES, RootTab.SERIES, RootTab.ANIME), categoryTabs(Library.CINEWAVE))
-        assertEquals(listOf(RootTab.ANIME), categoryTabs(Library.ANISUGE))
+    @Test fun categoriesRemainReachableWithoutHomeChips() {
+        for (library in Library.values()) {
+            val nav = NavState(library = library)
+            for (tab in library.tabs().filter {
+                it == RootTab.SERIES || it == RootTab.MOVIES || it == RootTab.COUNTRIES || it == RootTab.ANIME
+            }) {
+                assertEquals("$library $tab", tab, nav.selectTab(tab).current.tab)
+            }
+        }
     }
 
     @Test fun aTabletHeroNeverTakesMoreThanSixtyPercentOfTheScreen() {

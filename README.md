@@ -126,8 +126,9 @@ Requires JDK 17 or newer (21 works) and the Android SDK (platform 35, build-tool
 
 - Debug APK: `app/build/outputs/apk/debug/app-debug.apk`
 - Release APK: `app/build/outputs/apk/release/app-release.apk`. It is shrunk with R8
-  (`app/proguard-rules.pro`) and carries a baseline profile for faster starts. It is signed with the
-  debug key.
+  (`app/proguard-rules.pro`) and carries a baseline profile for faster starts. Without the established
+  signing credentials it is named `app-release-unsigned.apk` and cannot be installed.
+  See [release instructions](docs/RELEASING.md) for secure signing, compatibility checks and publishing.
 
 Unit tests are plain JVM tests in `app/src/test`. They cover filters, paging, search, watch history,
 saved titles, stream sniffing, the ad shield rules, the title page text rules, home layout and
