@@ -3,7 +3,7 @@
 KH is an Android app for phones and Android TV. It browses and plays titles from several streaming
 sources in one design. It reads each site's own data and does not wrap the website.
 
-Version 3.1. Package `com.kisskh.tv`. Android 6.0 (API 23) or newer.
+Version 3.2. Package `com.kisskh.tv`. Android 6.0 (API 23) or newer.
 
 ## Sources
 
@@ -90,13 +90,16 @@ play only inside their own web page can't be downloaded.
 - Native player (Media3 ExoPlayer): play and pause, 10 s skip (double tap on a phone), seek bar,
   subtitles, audio and quality choice, previous and next episode, server list with failed servers
   marked, resume where you stopped, pinch or Fit/Fill zoom.
+- Picture-in-picture on phones: with the native player, press Home while a video plays, or tap the
+  PiP button, and the video keeps playing in a small window with back 10 s, play/pause and forward
+  10 s. Servers that play in a web page, and TV, don't use it.
 - English by default: movies and TV start with English audio and subtitles when the stream has
   them, and servers whose audio has no English are skipped. Anime keeps its original audio or the
   source's own sub or dub setting.
 - Ad and popup blocking in web players (`player/AdShield.kt`): `window.open` is blocked, clicks that
   open a new tab are cancelled, and layers drawn over the video are removed. It needs WebView 87 or
   newer. On older WebViews only the navigation rules apply.
-- Leaving the app pauses the video. The screen stays on while watching.
+- Leaving the app pauses the video, unless the phone switches to picture-in-picture. The screen stays on while watching.
 
 ### Look
 

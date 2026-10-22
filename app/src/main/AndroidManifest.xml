@@ -28,8 +28,9 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|keyboardHidden|navigation"
-            android:launchMode="singleTask">
+            android:configChanges="orientation|screenSize|keyboardHidden|navigation|screenLayout|smallestScreenSize"
+            android:launchMode="singleTask"
+            android:supportsPictureInPicture="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />

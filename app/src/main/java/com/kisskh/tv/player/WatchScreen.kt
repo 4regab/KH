@@ -289,7 +289,7 @@ fun WatchScreen(vm: AppViewModel, dest: Dest.Watch) {
             else -> LaunchedEffect(index) { fail("no address") }
         }
 
-        if (serversOpen && ready != null) {
+        if (serversOpen && ready != null && !Pip.active) {
             PlayerSheet(title = "Servers", onClose = { serversOpen = false }) {
                 if (audios.size > 1) {
                     SheetHeading("Audio")

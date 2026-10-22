@@ -60,6 +60,7 @@ import com.kisskh.tv.ui.media.TokenScreen
 import com.kisskh.tv.ui.mine.MineScreen
 import com.kisskh.tv.download.OfflinePlayer
 import com.kisskh.tv.player.EmbedPlayer
+import com.kisskh.tv.player.Pip
 import com.kisskh.tv.player.StreamPlayerScreen
 import com.kisskh.tv.player.WatchScreen
 import com.kisskh.tv.ui.shelf.ShelfBrowse
@@ -188,6 +189,8 @@ private fun LockPlaybackLandscape(playing: Boolean) {
             bars.show(WindowInsetsCompat.Type.systemBars())
         }
         if (television) return@SideEffect
+        // In PiP the window is not ours to turn.
+        if (Pip.active) return@SideEffect
         activity.requestedOrientation = if (playing) {
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         } else {

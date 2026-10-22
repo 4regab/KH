@@ -1,6 +1,7 @@
 package com.kisskh.tv
 
 import android.graphics.Color as AndroidColor
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -27,7 +28,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import androidx.tv.material3.Text
 import com.kisskh.tv.player.EpisodePicker
+import com.kisskh.tv.player.Pip
+import com.kisskh.tv.player.PipActions
 import com.kisskh.tv.player.VideoPlayer
+import com.kisskh.tv.player.canPictureInPicture
+import com.kisskh.tv.player.enterPip
+import com.kisskh.tv.player.pipPlaying
 import com.kisskh.tv.ui.AppViewModel
 import com.kisskh.tv.ui.Dest
 import com.kisskh.tv.ui.UiState
@@ -42,6 +48,7 @@ import com.kisskh.tv.ui.theme.KhTheme
 
 class MainActivity : ComponentActivity() {
     private val vm: AppViewModel by viewModels()
+    private val pipActions = PipActions()
 
     @UnstableApi
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,11 +57,49 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
         )
+        if (canPictureInPicture(this)) pipActions.register(this)
+        addOnPictureInPictureModeChangedListener { syncPip() }
         setContent {
             KhTheme {
-                KhApp(vm = vm, onExit = { finish() }) { player -> PlayerHost(vm, player) }
+                Box(Modifier.fillMaxSize()) {
+                    KhApp(vm = vm, onExit = { finish() }) { player -> PlayerHost(vm, player) }
+                    // In PiP only the video shows. With no video behind it (loading, an error), show plain black.
+                    if (Pip.active && Pip.player == null) Box(Modifier.fillMaxSize().background(Color.Black))
+                }
             }
         }
+    }
+
+    override fun onDestroy() {
+        if (canPictureInPicture(this)) unregisterReceiver(pipActions)
+        super.onDestroy()
+    }
+
+    // Android 8 to 11 have no automatic PiP, so leaving the app starts it here. Android 12+ starts it by itself.
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && pipPlaying()) enterPip()
+    }
+
+    // The system already says "in PiP" when the activity pauses, before the window changes size and
+    // before the PiP callback arrives. Asking it at each of these points keeps the layout frozen in time.
+    private fun syncPip() {
+        Pip.active = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode
+    }
+
+    override fun onPause() {
+        super.onPause()
+        syncPip()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        syncPip()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        syncPip()
     }
 }
 
@@ -125,7 +170,7 @@ private fun PlayerHost(vm: AppViewModel, dest: Dest.Player) {
                         modifier = Modifier.background(Color.Black.copy(alpha = 0.78f)),
                     )
                 }
-                if (showEpisodes) {
+                if (showEpisodes && !Pip.active) {
                     EpisodePicker(
                         vm = vm,
                         dramaId = dest.dramaId,

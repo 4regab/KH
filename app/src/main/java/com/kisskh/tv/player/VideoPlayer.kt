@@ -1,6 +1,7 @@
 package com.kisskh.tv.player
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.net.Uri
 import android.view.GestureDetector
 import android.view.LayoutInflater
@@ -37,6 +38,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -98,6 +100,9 @@ fun VideoPlayer(
     onAudioLanguages: ((List<String?>) -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
+    val inPip = Pip.active
+    val pipAvailable = remember(context) { canPictureInPicture(context) }
     val reportAudio by rememberUpdatedState(onAudioLanguages)
     val reportProgress by rememberUpdatedState(onProgress)
     val reportError by rememberUpdatedState(onPlaybackError)
@@ -193,6 +198,16 @@ fun VideoPlayer(
                 if (playbackState == Player.STATE_ENDED) {
                     reportProgress(player.currentPosition, player.duration)
                 }
+                activity?.updatePipParams()
+            }
+
+            // The PiP window's play or pause icon, and whether Home may start PiP, follow these.
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                activity?.updatePipParams()
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                activity?.updatePipParams()
             }
 
             override fun onRenderedFirstFrame() {
@@ -203,11 +218,18 @@ fun VideoPlayer(
             override fun onPlayerError(error: PlaybackException) {
                 android.util.Log.e("KissKH", "playback error ${error.errorCodeName}", error)
                 stats.error(error.errorCodeName)
+                // A failed video is not worth a PiP window; the error message is shown in the app.
+                if (Pip.player === player) Pip.player = null
+                activity?.updatePipParams()
                 reportError(playbackMessage(error))
             }
         }
+        Pip.player = player
+        activity?.updatePipParams()
         player.addListener(listener)
         onDispose {
+            if (Pip.player === player) Pip.player = null
+            activity?.updatePipParams()
             reportProgress(player.currentPosition, player.duration)
             stats.end(player.currentPosition, player.duration)
             player.removeListener(listener)
@@ -237,6 +259,9 @@ fun VideoPlayer(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+
+    // Back from PiP: the controls come back, as when the screen first opens.
+    LaunchedEffect(inPip) { if (!inPip) playerView.value?.showController() }
 
     // Back hides the chrome first. A second Back leaves the player.
     BackHandler(enabled = hideControlsOnBack && controlsVisible) {
@@ -286,7 +311,13 @@ fun VideoPlayer(
                     setOnClickListener { onServers?.invoke() }
                 }
                 view.findViewById<View>(R.id.kh_player_tracks).setOnClickListener { showTracks = true }
-                view.resizeMode = if (fill) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                view.findViewById<View>(R.id.kh_player_pip).apply {
+                    visibility = if (pipAvailable) View.VISIBLE else View.GONE
+                    setOnClickListener { activity?.enterPip() }
+                }
+                // In PiP the window shows only the video, whole: no controls, no title, no zoom.
+                view.useController = !inPip
+                view.resizeMode = if (fill && !inPip) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
                 view.findViewById<ImageButton>(R.id.kh_player_zoom).apply {
                     setImageResource(if (fill) R.drawable.ic_player_zoom_fit else R.drawable.ic_player_zoom_fill)
                     contentDescription = context.getString(if (fill) R.string.player_zoom_fit else R.string.player_zoom_fill)
@@ -294,9 +325,11 @@ fun VideoPlayer(
                 }
             },
         )
-        ZoomHint(zoomHint, onDone = { zoomHint = null }, modifier = Modifier.align(BiasAlignment(0f, ZOOM_HINT_BIAS)))
-        if (showTracks) {
-            TrackSheet(player, onClose = { showTracks = false })
+        if (!inPip) {
+            ZoomHint(zoomHint, onDone = { zoomHint = null }, modifier = Modifier.align(BiasAlignment(0f, ZOOM_HINT_BIAS)))
+            if (showTracks) {
+                TrackSheet(player, onClose = { showTracks = false })
+            }
         }
     }
 }

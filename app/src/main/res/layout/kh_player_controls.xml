@@ -224,6 +224,19 @@
             android:visibility="gone" />
 
         <ImageButton
+            android:id="@+id/kh_player_pip"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/kh_player_focus"
+            android:contentDescription="@string/player_pip"
+            android:nextFocusUp="@id/exo_play_pause"
+            android:padding="10dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_player_pip"
+            android:visibility="gone" />
+
+        <ImageButton
             android:id="@+id/kh_player_zoom"
             android:layout_width="48dp"
             android:layout_height="48dp"
