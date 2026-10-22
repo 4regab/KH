@@ -38,8 +38,6 @@ object Anisuge {
 
     fun parseHome(html: String): List<ShelfRow> {
         val rows = ArrayList<ShelfRow>()
-        val featured = parseSlides(html)
-        if (featured.isNotEmpty()) rows += ShelfRow("Featured", featured)
         val headings = Regex("""<h2>([^<]+)</h2>""").findAll(html).toList()
         headings.forEachIndexed { index, heading ->
             val start = heading.range.last
@@ -51,37 +49,56 @@ object Anisuge {
             val cards = parsePosters(html)
             if (cards.isNotEmpty()) rows += ShelfRow("Anime", cards)
         }
-        return rows
+        // The slides only carry a wide banner. Borrow the poster of the same title from the rows below.
+        val posters = rows.flatMap { it.items }.filter { !it.poster.isNullOrBlank() }.associateBy { it.id }
+        val featured = parseSlides(html).map { slide -> slide.copy(poster = posters[slide.id]?.poster) }
+        return if (featured.isEmpty()) rows else listOf(ShelfRow("Featured", featured)) + rows
     }
 
-    fun parsePosters(html: String): List<TitleCard> {
+    /**
+     * Every title card in [html]. Two layouts exist: the main grid (`<a class="poster" href>` with a
+     * lazy-loaded `data-src`) and the ranked list (`<a class="item" href>` holding a poster div with
+     * a plain `src`). Each `<a>` is read on its own, so a poster is never paired with a neighbour's link.
+     */
+    fun parsePosters(html: String): List<TitleCard> = parseLinks(html)
+
+    private fun parseLinks(html: String): List<TitleCard> {
         val out = ArrayList<TitleCard>()
-        var from = 0
-        while (true) {
-            val at = html.indexOf("class=\"poster\"", from)
-            if (at < 0) break
-            val window = html.substring(at, minOf(html.length, at + 900))
-            val href = HtmlText.attr(window, "href")
-            val art = Regex("""data-src="([^"]+)"""").find(window)?.groupValues?.get(1)
-            val alt = Regex("""alt="([^"]*)"""").find(window)?.groupValues?.get(1)
-            val slug = href?.let(::slugOf).orEmpty()
-            if (slug.isNotBlank()) {
-                out += TitleCard(
-                    source = Library.ANISUGE,
-                    id = slug,
-                    kind = MediaKind.ANIME,
-                    name = HtmlText.unescape(alt.orEmpty()).ifBlank { slug },
-                    poster = art,
-                    backdrop = null,
-                    year = null,
-                    overview = null,
-                    slug = slug,
-                )
-            }
-            from = at + 12
+        for (piece in html.split(Regex("""(?i)<a\s""")).drop(1)) {
+            val href = HtmlText.attr("<a ${piece.substringBefore('>')}>", "href") ?: continue
+            if ("/anime/" !in href) continue
+            val slug = slugOf(href)
+            if (slug.isBlank()) continue
+            val img = HtmlText.openingTags(piece, "img").firstOrNull() ?: continue
+            val art = (HtmlText.attr(img, "data-src") ?: HtmlText.attr(img, "src"))?.let(::absolute) ?: continue
+            if (art.startsWith("data:")) continue
+            val name = HtmlText.attr(img, "alt")?.trim()?.takeIf { it.isNotEmpty() }
+                ?: Regex("""class="name"[^>]*>([^<]+)""").find(piece)?.groupValues?.get(1)?.trim()
+                ?: slug
+            out += TitleCard(
+                source = Library.ANISUGE,
+                id = slug,
+                kind = MediaKind.ANIME,
+                name = HtmlText.unescape(name),
+                poster = art,
+                backdrop = null,
+                year = null,
+                overview = null,
+                slug = slug,
+            )
         }
         return out.distinctBy { it.id }
     }
+
+    private fun absolute(url: String): String = if (url.startsWith("//")) "https:$url" else url
+
+    /** The show's own poster on its page (the `og:image` tag), or null. */
+    fun showPoster(html: String): String? =
+        HtmlText.openingTags(html, "meta")
+            .firstOrNull { HtmlText.attr(it, "property") == "og:image" }
+            ?.let { HtmlText.attr(it, "content") }
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::absolute)
 
     fun parseSlides(html: String): List<TitleCard> {
         val pattern = Regex("""<a href="([^"]+)" title="([^"]+)"\s+class="swiper-slide"\s+style="background-image:\s*url\('([^']+)'\)""")
@@ -196,32 +213,7 @@ object Anisuge {
         return parseSearchHtml(html)
     }
 
-    fun parseSearchHtml(html: String): List<TitleCard> {
-        val out = ArrayList<TitleCard>()
-        val pieces = html.split(Regex("""(?i)<a\b""")).drop(1)
-        for (piece in pieces) {
-            val tag = piece.substringBefore('>')
-            val href = HtmlText.attr("<a $tag>", "href") ?: continue
-            val slug = slugOf(href)
-            if (slug.isBlank()) continue
-            val name = Regex("""class="name"[^>]*>([^<]+)""").find(piece)?.groupValues?.get(1)
-                ?: Regex("""alt="([^"]+)"""").find(piece)?.groupValues?.get(1)
-                ?: slug
-            val poster = Regex("""(?:data-src|src)="([^"]+)"""").find(piece)?.groupValues?.get(1)
-            out += TitleCard(
-                source = Library.ANISUGE,
-                id = slug,
-                kind = MediaKind.ANIME,
-                name = HtmlText.unescape(name.trim()),
-                poster = poster,
-                backdrop = null,
-                year = null,
-                overview = null,
-                slug = slug,
-            )
-        }
-        return out.distinctBy { it.id }
-    }
+    fun parseSearchHtml(html: String): List<TitleCard> = parseLinks(html)
 
     private fun encodeUriComponent(value: String): String {
         val safe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"

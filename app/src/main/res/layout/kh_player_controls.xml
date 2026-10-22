@@ -73,7 +73,7 @@
             android:layout_height="48dp"
             android:background="@drawable/kh_player_focus"
             android:contentDescription="@string/player_home"
-            android:nextFocusDown="@id/exo_play"
+            android:nextFocusDown="@id/exo_play_pause"
             android:padding="10dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_player_home" />
@@ -111,36 +111,21 @@
             android:scaleType="fitCenter"
             android:src="@drawable/ic_player_rew" />
 
-        <FrameLayout
+        <!-- Media3 1.5 drives one play/pause button with this id (exo_play and exo_pause are no
+             longer wired, so two separate buttons did nothing). Icons come from kh_player_view. -->
+        <ImageButton
+            android:id="@+id/exo_play_pause"
             android:layout_width="96dp"
             android:layout_height="96dp"
             android:layout_marginStart="28dp"
-            android:layout_marginEnd="28dp">
-
-            <ImageButton
-                android:id="@+id/exo_play"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@drawable/kh_player_focus"
-                android:contentDescription="@string/player_play"
-                android:nextFocusDown="@id/exo_progress"
-                android:nextFocusUp="@id/kh_player_home"
-                android:padding="18dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_player_play" />
-
-            <ImageButton
-                android:id="@+id/exo_pause"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@drawable/kh_player_focus"
-                android:contentDescription="@string/player_pause"
-                android:nextFocusDown="@id/exo_progress"
-                android:padding="18dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/ic_player_pause"
-                android:visibility="gone" />
-        </FrameLayout>
+            android:layout_marginEnd="28dp"
+            android:background="@drawable/kh_player_focus"
+            android:contentDescription="@string/player_play"
+            android:nextFocusDown="@id/exo_progress"
+            android:nextFocusUp="@id/kh_player_home"
+            android:padding="18dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_player_pause" />
 
         <ImageButton
             android:id="@+id/exo_ffwd"
@@ -181,7 +166,7 @@
             android:layout_marginStart="12dp"
             android:layout_marginEnd="12dp"
             android:layout_weight="1"
-            android:nextFocusUp="@id/exo_play"
+            android:nextFocusUp="@id/exo_play_pause"
             app:bar_height="4dp"
             app:buffered_color="#66FFFFFF"
             app:played_color="#F52236"
@@ -206,7 +191,7 @@
             android:layout_marginStart="8dp"
             android:background="@drawable/kh_player_focus"
             android:contentDescription="@string/player_prev"
-            android:nextFocusUp="@id/exo_play"
+            android:nextFocusUp="@id/exo_play_pause"
             android:padding="10dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_player_prev"
@@ -219,7 +204,7 @@
             android:layout_marginStart="8dp"
             android:background="@drawable/kh_player_focus"
             android:contentDescription="@string/player_next"
-            android:nextFocusUp="@id/exo_play"
+            android:nextFocusUp="@id/exo_play_pause"
             android:padding="10dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_player_next"
@@ -232,7 +217,7 @@
             android:layout_marginStart="8dp"
             android:background="@drawable/kh_player_focus"
             android:contentDescription="@string/player_servers"
-            android:nextFocusUp="@id/exo_play"
+            android:nextFocusUp="@id/exo_play_pause"
             android:padding="10dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_player_servers"
@@ -245,19 +230,7 @@
             android:layout_marginStart="4dp"
             android:background="@drawable/kh_player_focus"
             android:contentDescription="@string/player_tracks"
-            android:nextFocusUp="@id/exo_play"
-            android:padding="10dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_player_tracks" />
-
-        <ImageButton
-            android:id="@+id/exo_subtitle"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/kh_player_focus"
-            android:contentDescription="@string/player_subtitles"
-            android:nextFocusUp="@id/exo_play"
+            android:nextFocusUp="@id/exo_play_pause"
             android:padding="10dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_player_sub" />

@@ -44,15 +44,18 @@ object TmdbPaths {
     /**
      * CineWave's discover helper. Latest is the release date descending, not after today, with at
      * least five votes. Anything else is popularity. [page] is added so a grid can continue.
+     * [country] is an ISO 3166-1 code (KR, JP, ...) that keeps only titles made in that country.
+     * It is left out when null or not two letters, so a bad value never narrows the list to nothing.
      */
-    fun discover(kind: String, latest: Boolean, page: Int, today: String): String {
+    fun discover(kind: String, latest: Boolean, page: Int, today: String, country: String? = null): String {
         val base = if (latest) {
             val field = if (kind == "movie") "primary_release_date" else "first_air_date"
             "/discover/$kind?sort_by=$field.desc&$field.lte=$today&vote_count.gte=5&include_null_first_air_dates=false"
         } else {
             "/discover/$kind?sort_by=popularity.desc"
         }
-        return "$base&page=$page"
+        val origin = country?.trim()?.uppercase()?.takeIf { it.length == 2 && it.all(Char::isLetter) }
+        return base + (if (origin != null) "&with_origin_country=$origin" else "") + "&page=$page"
     }
 
     fun withKey(path: String): String {
@@ -584,8 +587,8 @@ class TmdbClient(private val http: OkHttpClient = defaultHttp()) {
     fun onTheAir(page: Int = 1) = page(TmdbPaths.onTheAir(page), "tv")
     fun search(query: String) = page(TmdbPaths.search(query), null).items
     fun anime(page: Int) = page(TmdbPaths.anime(page), "tv")
-    fun discover(kind: String, latest: Boolean, page: Int, today: String) =
-        page(TmdbPaths.discover(kind, latest, page, today), kind)
+    fun discover(kind: String, latest: Boolean, page: Int, today: String, country: String? = null) =
+        page(TmdbPaths.discover(kind, latest, page, today, country), kind)
 
     fun movie(id: Int) = TmdbJson.details(get(TmdbPaths.movie(id)), "movie")
     fun tv(id: Int) = TmdbJson.details(get(TmdbPaths.tv(id)), "tv")

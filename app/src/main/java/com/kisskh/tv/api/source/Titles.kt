@@ -24,11 +24,16 @@ data class TitleCard(
     val resumeEpisode: String? = null,
     val resumeSeason: Int = 0,
     val resumeNumber: Int = 0,
+    /** How far the viewer got (0..1), on Continue cards whose position is known. */
+    val progress: Float? = null,
 ) {
     val artwork: String? get() = backdrop ?: poster
 }
 
 data class ShelfRow(val title: String, val items: List<TitleCard>)
+
+/** Title of the row of titles the viewer started. Home puts it first. */
+const val CONTINUE_ROW = "Continue Watching"
 
 data class ShelfPage(val items: List<TitleCard>, val page: Int, val hasMore: Boolean)
 

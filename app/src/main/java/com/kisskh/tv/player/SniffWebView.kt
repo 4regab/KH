@@ -42,6 +42,8 @@ internal fun SniffWebView(
     sniff: Boolean = true,
     onKeyDown: ((Int) -> Boolean)? = null,
     onCreated: (WebView) -> Unit = {},
+    /** Null keeps the WebView's own (mobile) user agent. */
+    userAgent: String? = WEB_USER_AGENT,
 ) {
     val gate = remember { SniffGate() }
     gate.onStream = onStream
@@ -60,7 +62,8 @@ internal fun SniffWebView(
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                settings.userAgentString = WEB_USER_AGENT
+                if (userAgent != null) settings.userAgentString = userAgent
+                gate.userAgent = settings.userAgentString
                 isFocusable = true
                 isFocusableInTouchMode = true
                 CookieManager.getInstance().setAcceptCookie(true)
@@ -94,6 +97,7 @@ internal fun SniffWebView(
 internal class SniffGate {
     @Volatile var started: String = ""
     @Volatile var sniff: Boolean = true
+    @Volatile var userAgent: String = WEB_USER_AGENT
     var onStream: (SniffedStream) -> Unit = {}
     var onFail: () -> Unit = {}
     private val failed = AtomicBoolean(false)
@@ -114,7 +118,7 @@ internal class SniffGate {
     /** Called on the WebView's network thread. */
     fun request(url: String, headers: Map<String, String>) {
         if (!sniff || !StreamSniff.isStream(url) || !found.compareAndSet(false, true)) return
-        val stream = SniffedStream(url, StreamSniff.headers(headers, started) + ("User-Agent" to WEB_USER_AGENT))
+        val stream = SniffedStream(url, StreamSniff.headers(headers, started) + ("User-Agent" to userAgent))
         main.post { onStream(stream) }
     }
 

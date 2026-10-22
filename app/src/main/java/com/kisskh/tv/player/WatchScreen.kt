@@ -1,6 +1,5 @@
 package com.kisskh.tv.player
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,42 +8,54 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import androidx.tv.material3.Text
 import com.kisskh.tv.api.SubtitleFile
 import com.kisskh.tv.api.media.Library
+import com.kisskh.tv.api.media.MediaKind
 import com.kisskh.tv.api.media.SniffedStream
+import com.kisskh.tv.api.media.SubFetcher
+import com.kisskh.tv.api.media.SubLists
 import com.kisskh.tv.api.source.EpisodeRef
 import com.kisskh.tv.api.source.PlayPlan
 import com.kisskh.tv.api.source.PlayTarget
 import com.kisskh.tv.ui.AppViewModel
 import com.kisskh.tv.ui.Dest
 import com.kisskh.tv.ui.components.KhButton
-import com.kisskh.tv.ui.components.KhChip
-import com.kisskh.tv.ui.components.LoadingState
+import com.kisskh.tv.ui.components.KhSpinner
 import com.kisskh.tv.ui.shelf.ShelfSession
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhTheme
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+
+/** How long a page may take to ask for its stream before it is shown to the viewer instead. */
+private const val SNIFF_TIMEOUT_MS = 20_000L
 
 /**
  * One player for CineWave, CineJoy, Reelix, Anisuge and Anime Nexus.
- * A target with a direct URL plays immediately. Otherwise the page is loaded and the first real
- * HLS or MP4 request is handed to the native player. If that never arrives, the page stays up.
+ *
+ * A server with a direct URL plays in the native player at once. A page server is loaded out of
+ * sight and its first HLS or MP4 request goes to the native player. A page that never asks (it
+ * wants a tap first) is shown in the web player instead. A server that fails moves on to the next
+ * one; the server list shows which ones failed and lets the viewer pick any of them.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -54,27 +65,29 @@ fun WatchScreen(vm: AppViewModel, dest: Dest.Watch) {
     var resolved by remember(dest.progressKey) { mutableStateOf<ShelfSession.Resolved?>(null) }
     var plan by remember(dest.progressKey, audio) { mutableStateOf<PlayPlan?>(null) }
     var error by remember(dest.progressKey, audio) { mutableStateOf<String?>(null) }
-    var loading by remember(dest.progressKey, audio) { mutableStateOf(true) }
+    var attempt by remember(dest.progressKey) { mutableIntStateOf(0) }
     var index by remember(dest.progressKey, audio) { mutableIntStateOf(0) }
+    // Why each server failed, by index. A server in here is skipped when moving on.
+    val failed = remember(dest.progressKey, audio, attempt) { mutableStateMapOf<Int, String>() }
     var stream by remember(dest.progressKey, audio) { mutableStateOf<SniffedStream?>(null) }
+    // The current page server is shown to the viewer instead of being sniffed.
     var showPage by remember(dest.progressKey, audio) { mutableStateOf(false) }
     var serversOpen by remember(dest.progressKey) { mutableStateOf(false) }
-    var attempt by remember(dest.progressKey) { mutableIntStateOf(0) }
+    // Bumped when the viewer picks the server that is already selected, to load it again.
+    var reload by remember(dest.progressKey) { mutableIntStateOf(0) }
 
     LaunchedEffect(dest.progressKey, audio, attempt) {
-        loading = true
         error = null
+        plan = null
         stream = null
         showPage = false
         index = 0
-        plan = null
         val found = try {
             vm.shelf.resolve(library, dest)
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (failed: Exception) {
-            error = failed.message ?: "Couldn't open this episode."
-            loading = false
+        } catch (failure: Exception) {
+            error = "Couldn't open this episode. ${failure.message.orEmpty()}".trim()
             return@LaunchedEffect
         }
         resolved = found
@@ -82,20 +95,35 @@ fun WatchScreen(vm: AppViewModel, dest: Dest.Watch) {
             vm.shelf.plan(library, found.card, found.episode, audio)
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (failed: Exception) {
-            error = failed.message ?: "Couldn't find a server."
-            loading = false
+        } catch (failure: Exception) {
+            error = "Couldn't get the server list. ${failure.message.orEmpty()}".trim()
             return@LaunchedEffect
         }
         if (ready.progressKey.isNotBlank()) vm.media.progress.remember(ready.progressKey, ready.title, ready.poster)
         plan = ready
-        loading = false
-        if (ready.targets.isEmpty()) error = "No server for this episode."
+        if (ready.targets.isEmpty()) error = "No server has this episode."
     }
 
     val ready = plan
-    val target = ready?.targets?.getOrNull(index)
-    val audios = ready?.targets?.map { it.audio }?.filter { it.isNotBlank() }?.distinct().orEmpty()
+    val targets = ready?.targets.orEmpty()
+    val target = targets.getOrNull(index)
+    val audios = targets.map { it.audio }.filter { it.isNotBlank() }.distinct()
+
+    fun select(next: Int) {
+        failed.remove(next)
+        stream = null
+        showPage = false
+        if (next == index) reload++ else index = next
+    }
+
+    /** Mark the current server as failed and move to the next one that has not failed yet. */
+    fun fail(reason: String) {
+        failed[index] = reason
+        stream = null
+        showPage = false
+        val next = (index + 1 until targets.size).firstOrNull { it !in failed } ?: (0 until index).firstOrNull { it !in failed }
+        if (next != null) index = next
+    }
 
     fun go(episode: EpisodeRef?) {
         if (episode == null || ready == null) return
@@ -114,117 +142,144 @@ fun WatchScreen(vm: AppViewModel, dest: Dest.Watch) {
         )
     }
 
+    // Subtitle lists some servers keep apart from the video (VidZee, VidRock). Fetched while the page loads.
+    var extraSubs by remember(target) { mutableStateOf<List<SubtitleFile>?>(if (target?.subsUrl == null) emptyList() else null) }
+    LaunchedEffect(target) {
+        val url = target?.subsUrl ?: return@LaunchedEffect
+        extraSubs = withContext(Dispatchers.IO) { SubFetcher().load(url, target.referer) { SubLists.parseLabelFile(it) } }
+    }
+
+    val title = ready?.title?.ifBlank { null } ?: dest.title.ifBlank { library.label }
+    val label = ready?.label ?: dest.label
+    val allFailed = targets.isNotEmpty() && failed.size >= targets.size
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         when {
-            loading -> LoadingState(message = "Opening ${target?.name ?: dest.title}")
-            error != null && stream == null && target?.direct == null -> WatchMessage(
-                error ?: "Playback failed.",
-                onBack = { vm.onBack() },
-                onHome = { vm.goHome() },
+            error != null -> WatchMessage(
+                title = title,
+                message = error!!,
                 onRetry = { attempt++ },
+                onBack = { vm.onBack() },
             )
-            target == null -> WatchMessage("No server for this episode.", onBack = { vm.onBack() }, onHome = { vm.goHome() })
-            target.direct != null -> {
-                val current = checkNotNull(ready)
-                Native(
-                    vm = vm,
-                    dest = dest,
-                    plan = current,
-                    url = target.direct,
-                    headers = target.headers.ifEmpty { mapOf("Referer" to target.referer) },
-                    subs = target.subs,
-                    label = listOf(current.label, target.name).filter { it.isNotBlank() }.joinToString(" · "),
-                    onPrev = resolved?.previous?.let { episode -> { go(episode) } },
-                    onNext = resolved?.next?.let { episode -> { go(episode) } },
-                    onServers = { serversOpen = true },
-                    onFail = {
-                        if (index < current.targets.lastIndex) {
-                            index++
-                        } else {
-                            error = "Playback failed."
-                        }
-                    },
-                )
-            }
-            stream != null && !showPage -> {
-                val current = checkNotNull(ready)
-                Native(
-                    vm = vm,
-                    dest = dest,
-                    plan = current,
-                    url = stream!!.url,
-                    headers = stream!!.headers.ifEmpty { mapOf("Referer" to target.referer) },
-                    subs = target.subs,
-                    label = listOf(current.label, target.name).filter { it.isNotBlank() }.joinToString(" · "),
-                    onPrev = resolved?.previous?.let { episode -> { go(episode) } },
-                    onNext = resolved?.next?.let { episode -> { go(episode) } },
-                    onServers = { serversOpen = true },
-                    onFail = {
-                        stream = null
-                        if (index < current.targets.lastIndex) index++ else showPage = true
-                    },
-                )
-            }
-            target.page != null -> {
-                val current = checkNotNull(ready)
-                val sniffing = target.sniff && !showPage
-                if (sniffing) {
-                    LaunchedEffect(target.page, index) {
-                        delay(20_000)
-                        if (stream == null) {
-                            if (index < current.targets.lastIndex) index++ else showPage = true
-                        }
-                    }
-                }
-                SniffWebView(
-                    page = target.page,
-                    referer = target.referer,
-                    loadKey = "${target.page}#$index#$showPage",
-                    onStream = { sniffed -> if (sniffing) stream = sniffed },
-                    onFail = {
-                        if (!sniffing) return@SniffWebView
-                        if (index < current.targets.lastIndex) index++ else showPage = true
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                    sniff = sniffing,
-                )
-                if (sniffing) {
-                    Text(
-                        "Trying ${target.name}",
-                        color = KhColors.TextSecondary,
-                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp),
+            ready == null || target == null -> Preparing(title, label, "Finding servers", onBack = { vm.onBack() })
+            allFailed -> WatchMessage(
+                title = title,
+                message = if (targets.size == 1) {
+                    "${target.name} couldn't play this episode (${failed[index]})."
+                } else {
+                    "None of the ${targets.size} servers could play this episode."
+                },
+                onRetry = {
+                    failed.clear()
+                    select(0)
+                },
+                onServers = if (targets.size > 1) ({ serversOpen = true }) else null,
+                onBack = { vm.onBack() },
+            )
+            target.direct != null || (stream != null && !showPage) -> {
+                val url = target.direct ?: stream!!.url
+                val headers = (if (target.direct != null) target.headers else stream!!.headers).ifEmpty { mapOf("Referer" to target.referer) }
+                val subs = target.subs + extraSubs.orEmpty()
+                if (target.subsUrl != null && extraSubs == null) {
+                    Preparing(title, label, "Loading subtitles", onBack = { vm.onBack() })
+                } else {
+                    Native(
+                        vm = vm,
+                        dest = dest,
+                        plan = ready,
+                        url = url,
+                        headers = headers,
+                        subs = subs,
+                        label = listOf(label, target.name).filter { it.isNotBlank() }.joinToString(" · "),
+                        onPrev = resolved?.previous?.let { episode -> { go(episode) } },
+                        onNext = resolved?.next?.let { episode -> { go(episode) } },
+                        onServers = { serversOpen = true },
+                        onFail = { reason -> fail(reason) },
                     )
                 }
             }
+            target.page != null && target.sniff && !showPage -> {
+                LaunchedEffect(target.page, index, reload) {
+                    delay(SNIFF_TIMEOUT_MS)
+                    if (stream == null) showPage = true
+                }
+                Box(Modifier.fillMaxSize()) {
+                    SniffWebView(
+                        page = target.page,
+                        referer = target.referer,
+                        loadKey = "${target.page}#$index#$reload",
+                        onStream = { sniffed -> stream = sniffed },
+                        onFail = { fail("didn't load") },
+                        modifier = Modifier.fillMaxSize(),
+                        userAgent = webUserAgent(library),
+                    )
+                    // The page loads under this. Its own ads and buttons are never shown while sniffing.
+                    Preparing(
+                        title = title,
+                        label = label,
+                        status = "Connecting to ${target.name}" + if (targets.size > 1) " · server ${index + 1} of ${targets.size}" else "",
+                        onBack = { vm.onBack() },
+                        onServers = if (targets.size > 1) ({ serversOpen = true }) else null,
+                        modifier = Modifier.background(Color.Black),
+                    )
+                }
+            }
+            target.page != null -> WebPlayer(
+                key = "${dest.progressKey}#$index#$reload",
+                title = title,
+                label = listOf(label, target.name).filter { it.isNotBlank() }.joinToString(" · "),
+                sources = listOf(WebSource(target.name, target.name, target.page)),
+                referer = target.referer,
+                onBack = { vm.onBack() },
+                onHome = { vm.goHome() },
+                onEpisodes = if (dest.kind != MediaKind.MOVIE) ({ vm.onBack() }) else null,
+                onNext = resolved?.next?.let { episode -> { go(episode) } },
+                userAgent = webUserAgent(library),
+                onServers = { serversOpen = true },
+                onFailed = { reason -> fail(reason) },
+            )
+            else -> LaunchedEffect(index) { fail("no address") }
         }
-        if (ready != null && ready.targets.size > 1 && (stream == null && target?.direct == null || serversOpen)) {
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.72f)).padding(12.dp)) {
+
+        if (serversOpen && ready != null) {
+            PlayerSheet(title = "Servers", onClose = { serversOpen = false }) {
                 if (audios.size > 1) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                        audios.forEach { name ->
-                            KhChip(name.replaceFirstChar { it.uppercase() }, selected = name.equals(audio.ifBlank { audios.first() }, true), onClick = { audio = name })
+                    SheetHeading("Audio")
+                    audios.forEach { name ->
+                        SheetOption(
+                            name.replaceFirstChar { it.uppercase() },
+                            selected = name.equals(audio.ifBlank { audios.first() }, true),
+                        ) {
+                            serversOpen = false
+                            audio = name
                         }
                     }
                 }
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    itemsIndexed(ready.targets) { i, server ->
-                        KhChip(server.name, selected = i == index, onClick = {
-                            serversOpen = false
-                            showPage = false
-                            stream = null
-                            if (i == index) return@KhChip
-                            index = i
-                        })
+                SheetHeading(if (targets.size == 1) "Server" else "${targets.size} servers")
+                targets.forEachIndexed { i, server ->
+                    val reason = failed[i]
+                    SheetOption(
+                        text = server.name,
+                        selected = i == index && reason == null,
+                        note = when {
+                            reason != null -> "Failed"
+                            i == index -> "Now"
+                            server.direct != null -> "Direct"
+                            else -> null
+                        },
+                        dimmed = reason != null,
+                    ) {
+                        serversOpen = false
+                        select(i)
                     }
-                }
-                if (serversOpen) {
-                    KhButton("Close", onClick = { serversOpen = false }, modifier = Modifier.padding(top = 8.dp))
                 }
             }
         }
     }
-    BackHandler(enabled = serversOpen) { serversOpen = false }
 }
+
+/** CineJoy's page picks its own (better) layout for a phone browser; embed hosts want a desktop one. */
+internal fun webUserAgent(library: Library): String? = if (library == Library.CINEJOY) null else DESKTOP_UA
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -239,9 +294,10 @@ private fun Native(
     onPrev: (() -> Unit)?,
     onNext: (() -> Unit)?,
     onServers: () -> Unit,
-    onFail: () -> Unit,
+    onFail: (String) -> Unit,
 ) {
-    val resume = remember(dest.progressKey) { vm.media.progress.position(dest.progressKey) }
+    // Read again for every stream, so a server switch resumes where the last one stopped.
+    val resume = remember(dest.progressKey, url) { vm.media.progress.position(dest.progressKey) }
     VideoPlayer(
         url = url,
         subs = subs,
@@ -249,7 +305,7 @@ private fun Native(
         title = plan.title.ifBlank { dest.title },
         label = label,
         onProgress = { pos, dur -> vm.media.progress.save(dest.progressKey, plan.title, plan.poster, pos, dur) },
-        onPlaybackError = { onFail() },
+        onPlaybackError = { onFail(it) },
         onBack = { vm.onBack() },
         onHome = { vm.goHome() },
         onEpisodes = { vm.onBack() },
@@ -257,18 +313,65 @@ private fun Native(
         onPrev = onPrev,
         onServers = onServers,
         requestHeaders = headers,
-        showEpisodes = dest.kind != com.kisskh.tv.api.media.MediaKind.MOVIE,
+        showEpisodes = dest.kind != MediaKind.MOVIE,
+        // Anime's sub or dub is the source's own audio setting; every movie and series starts in English.
+        preferEnglishAudio = dest.kind != MediaKind.ANIME && dest.source != Library.ANISUGE.key && dest.source != Library.NEXUS.key,
     )
 }
 
+/** Black screen with the title, a spinner and what is happening. Back always works. */
 @Composable
-private fun WatchMessage(message: String, onBack: () -> Unit, onHome: () -> Unit, onRetry: (() -> Unit)? = null) {
-    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(message, style = KhTheme.typography.title, color = KhColors.TextPrimary)
-            if (onRetry != null) KhButton("Try again", onClick = onRetry, primary = true)
+private fun Preparing(
+    title: String,
+    label: String,
+    status: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    onServers: (() -> Unit)? = null,
+) {
+    Box(modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
+        Row(Modifier.align(Alignment.TopStart), verticalAlignment = Alignment.CenterVertically) {
             KhButton("Back", onClick = onBack)
-            KhButton("Home", onClick = onHome)
+            Column(Modifier.padding(start = 16.dp)) {
+                Text(title, style = KhTheme.typography.title, color = KhColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (label.isNotBlank()) Text(label, style = KhTheme.typography.caption, color = KhColors.TextSecondary, maxLines = 1)
+            }
+        }
+        Column(
+            Modifier.align(Alignment.Center),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            KhSpinner(color = KhColors.Brand)
+            Text(status, style = KhTheme.typography.body, color = KhColors.TextSecondary, textAlign = TextAlign.Center)
+        }
+        if (onServers != null) {
+            KhButton("Servers", onClick = onServers, modifier = Modifier.align(Alignment.BottomEnd))
+        }
+    }
+}
+
+@Composable
+private fun WatchMessage(
+    title: String,
+    message: String,
+    onRetry: () -> Unit,
+    onBack: () -> Unit,
+    onServers: (() -> Unit)? = null,
+) {
+    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.widthIn(max = 520.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(title, style = KhTheme.typography.caption, color = KhColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(message, style = KhTheme.typography.title, color = KhColors.TextPrimary, textAlign = TextAlign.Center)
+            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                KhButton("Try again", onClick = onRetry, primary = true)
+                if (onServers != null) KhButton("Servers", onClick = onServers)
+                KhButton("Back", onClick = onBack)
+            }
         }
     }
 }

@@ -70,6 +70,7 @@ fun iconFor(tab: RootTab): Int = when (tab) {
     RootTab.MOVIES -> R.drawable.ic_nav_movies
     RootTab.COUNTRIES -> R.drawable.ic_nav_countries
     RootTab.ANIME -> R.drawable.ic_nav_anime
+    RootTab.MINE -> R.drawable.ic_nav_mine
 }
 
 /**

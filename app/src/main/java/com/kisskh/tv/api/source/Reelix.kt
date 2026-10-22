@@ -16,6 +16,11 @@ object Reelix {
     const val REFERER = "https://reelix.ac/"
 
     fun searchUrl(query: String) = "$SITE/api/search?q=${encode(query)}"
+    /**
+     * List page URL. Reelix has no country or region filter: checked /movies and /tv, which only
+     * link `?sort=` and `?genre=`, and `?country=`, `?origin_country=`, `?region=` and `?lang=` all
+     * return the unfiltered list. So the grid hides its Country filter on Reelix.
+     */
     fun listUrl(kind: MediaKind, page: Int): String = when (kind) {
         MediaKind.MOVIE -> "$SITE/movies?page=$page"
         MediaKind.TV -> "$SITE/tv?page=$page"

@@ -15,6 +15,9 @@ enum class RootTab(val label: String) {
     MOVIES("Movies"),
     COUNTRIES("Countries"),
     ANIME("Anime"),
+
+    /** My List, Watched and Downloads. Shared by every source. */
+    MINE("My KH"),
 }
 
 /** Rail and bottom-bar label. CineWave and CineJoy call series "TV Shows". */
@@ -23,10 +26,10 @@ fun RootTab.labelFor(library: Library): String =
 
 /** Tabs for one source, in the order they appear. */
 fun Library.tabs(): List<RootTab> = when (this) {
-    Library.KISSKH -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.SERIES, RootTab.MOVIES, RootTab.COUNTRIES)
-    Library.CINEWAVE, Library.REELIX -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES, RootTab.ANIME)
-    Library.CINEJOY -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES)
-    Library.ANISUGE, Library.NEXUS -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.ANIME)
+    Library.KISSKH -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.SERIES, RootTab.MOVIES, RootTab.COUNTRIES, RootTab.MINE)
+    Library.CINEWAVE, Library.REELIX -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES, RootTab.ANIME, RootTab.MINE)
+    Library.CINEJOY -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES, RootTab.MINE)
+    Library.ANISUGE, Library.NEXUS -> listOf(RootTab.HOME, RootTab.SEARCH, RootTab.ANIME, RootTab.MINE)
 }
 
 /** Helpers for the opaque `focusKey` strings that screens store in a [Dest]. */
@@ -275,6 +278,8 @@ sealed interface Dest {
         val poster: String? = null,
         override val focusKey: String? = null,
         override val scrollIndex: Int = 0,
+        /** Start the page's main action (Play or Resume) as soon as it is known. Cleared once used. */
+        val autoplay: Boolean = false,
     ) : Restorable {
         override fun withFocus(focusKey: String?, scrollIndex: Int?) =
             copy(focusKey = focusKey, scrollIndex = scrollIndex ?: this.scrollIndex)
@@ -318,6 +323,19 @@ sealed interface Dest {
         override fun withFocus(focusKey: String?, scrollIndex: Int?) =
             copy(focusKey = focusKey, scrollIndex = scrollIndex ?: this.scrollIndex)
     }
+
+    /** "My KH": My List, Watched and Downloads, across every source. */
+    data class Mine(
+        override val focusKey: String? = null,
+        override val scrollIndex: Int = 0,
+    ) : Restorable {
+        override val tab get() = RootTab.MINE
+        override fun withFocus(focusKey: String?, scrollIndex: Int?) =
+            copy(focusKey = focusKey, scrollIndex = scrollIndex ?: this.scrollIndex)
+    }
+
+    /** A downloaded title, played from the phone with no network. [downloadId] is the download's id. */
+    data class OfflinePlayer(val downloadId: String) : Dest
 }
 
 private fun episodeLabel(season: Int, episode: Int, name: String): String {
@@ -383,6 +401,7 @@ data class NavState(
             RootTab.MOVIES -> Dest.Movies()
             RootTab.COUNTRIES -> Dest.Countries()
             RootTab.ANIME -> Dest.Home()
+            RootTab.MINE -> Dest.Mine()
         }
         Library.CINEWAVE, Library.CINEJOY, Library.REELIX, Library.ANISUGE, Library.NEXUS -> when (tab) {
             RootTab.HOME -> Dest.Home()
@@ -391,6 +410,7 @@ data class NavState(
             RootTab.SERIES -> Dest.Shelf(MediaKind.TV)
             RootTab.ANIME -> Dest.Shelf(MediaKind.ANIME)
             RootTab.COUNTRIES -> Dest.Home()
+            RootTab.MINE -> Dest.Mine()
         }
     }
 }

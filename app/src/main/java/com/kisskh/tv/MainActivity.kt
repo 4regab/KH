@@ -109,6 +109,8 @@ private fun PlayerHost(vm: AppViewModel, dest: Dest.Player) {
                     onNext = next?.let { (d, ep) -> { vm.switchEpisode(d.playerDest(ep)) } },
                     onPrev = previous?.let { (d, ep) -> { vm.switchEpisode(d.playerDest(ep)) } },
                     hideControlsOnBack = failed == null,
+                    // KissKH dramas keep their original audio; English subtitles are preferred in the player.
+                    preferEnglishAudio = false,
                 )
                 val message = failed
                 if (message != null) {

@@ -120,6 +120,10 @@ fun WebPlayer(
     onEpisodes: (() -> Unit)?,
     onNext: (() -> Unit)?,
     userAgent: String? = DESKTOP_UA,
+    /** Opens the caller's own server list. When null, the player lists [sources] itself. */
+    onServers: (() -> Unit)? = null,
+    /** Called when every source failed, instead of showing the player's own error. */
+    onFailed: ((String) -> Unit)? = null,
 ) {
     var index by remember(key) { mutableIntStateOf(0) }
     var note by remember(key) { mutableStateOf<String?>(null) }
@@ -188,6 +192,10 @@ fun WebPlayer(
         tried += current
         Log.w(TAG, "${sources[current].name} failed: $reason")
         val next = EmbedFailover.next(current, sources.size, tried)
+        if (next == null && onFailed != null) {
+            onFailed(reason)
+            return
+        }
         if (next == null) {
             gaveUp = true
             note = if (sources.size == 1) {
@@ -244,6 +252,23 @@ fun WebPlayer(
             overlay && !gaveUp -> { overlay = false; runCatching { web.value?.requestFocus() } }
             else -> onBack()
         }
+    }
+
+    // Leaving the app pauses the page's video, as the native player does.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    bridge.pause()
+                    web.value?.onPause()
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_START -> web.value?.onResume()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val source = sources[index]
@@ -345,6 +370,13 @@ fun WebPlayer(
                     view.loadUrl(source.url, headers)
                 }
             },
+            // Without this the page keeps playing sound after the player is closed.
+            onRelease = { view ->
+                web.value = null
+                view.stopLoading()
+                view.loadUrl("about:blank")
+                view.destroy()
+            },
         )
 
         AnimatedVisibility(
@@ -373,8 +405,8 @@ fun WebPlayer(
                             RoundIcon(R.drawable.ic_player_next, R.string.player_next, onNext, ::poke)
                             Spacer(Modifier.width(4.dp))
                         }
-                        if (sources.size > 1) {
-                            KhChip("Servers", onClick = { picking = true })
+                        if (sources.size > 1 || onServers != null) {
+                            KhChip("Servers", onClick = { if (onServers != null) onServers() else picking = true })
                             Spacer(Modifier.width(8.dp))
                         }
                     }
@@ -424,8 +456,8 @@ fun WebPlayer(
                             if (clock != null) "OK plays or pauses · Left and Right skip 10 s" else "OK plays or pauses",
                             "No picture? Choose another server".takeIf { sources.size > 1 },
                         ).joinToString(" · "),
-                        showServers = sources.size > 1,
-                        onServers = { picking = true },
+                        showServers = sources.size > 1 || onServers != null,
+                        onServers = { if (onServers != null) onServers() else picking = true },
                         onNext = onNext,
                         onFocus = ::poke,
                         modifier = Modifier.align(Alignment.BottomCenter),

@@ -100,6 +100,9 @@ class VideoBridge(private val onClock: (VideoClock?) -> Unit) {
 
     fun toggle() = send("{\"c\":\"toggle\"}")
 
+    /** Pause the page's video (the app is leaving the screen). */
+    fun pause() = send("{\"c\":\"pause\"}")
+
     private fun send(json: String): Boolean {
         val target = proxy ?: return false
         return runCatching { target.postMessage(json) }.isSuccess
@@ -130,6 +133,7 @@ class VideoBridge(private val onClock: (VideoClock?) -> Unit) {
       try { m = JSON.parse(e.data); } catch (x) { return; }
       if (!v) return;
       if (m.c === 'seek') { v.currentTime = Math.max(0, Math.min(v.duration - 1, m.t)); send(); }
+      else if (m.c === 'pause') { v.pause(); send(); }
       else if (m.c === 'toggle') { if (v.paused) { var p = v.play(); if (p && p.catch) p.catch(function(){}); } else v.pause(); send(); }
     };
   }

@@ -2,7 +2,11 @@ package com.kisskh.tv.ui.shell
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -53,6 +57,8 @@ import com.kisskh.tv.ui.tabs
 import com.kisskh.tv.ui.media.MediaBrowseScreen
 import com.kisskh.tv.ui.media.MediaDetailScreen
 import com.kisskh.tv.ui.media.TokenScreen
+import com.kisskh.tv.ui.mine.MineScreen
+import com.kisskh.tv.download.OfflinePlayer
 import com.kisskh.tv.player.EmbedPlayer
 import com.kisskh.tv.player.StreamPlayerScreen
 import com.kisskh.tv.player.WatchScreen
@@ -83,7 +89,8 @@ fun KhApp(
     val nav by vm.nav.collectAsStateWithLifecycle()
     val current = nav.current
     val tv = KhTheme.formFactor == FormFactor.TV
-    val playing = current is Dest.Player || current is Dest.EmbedPlayer || current is Dest.StreamPlayer || current is Dest.Watch
+    val playing = current is Dest.Player || current is Dest.EmbedPlayer || current is Dest.StreamPlayer || current is Dest.Watch ||
+        current is Dest.OfflinePlayer
     val showRail = tv && !playing
     val focusManager = LocalFocusManager.current
     val saver = remember { FocusSaver() }
@@ -158,13 +165,28 @@ fun KhApp(
     }
 }
 
-/** On a phone, playback is landscape. A television is already landscape, so it is left alone. */
+/**
+ * While a player is on screen: the screen stays on, and the status and navigation bars hide (a swipe
+ * from the edge shows them for a moment). On a phone, playback is also landscape. A television is
+ * already landscape, so its orientation is left alone.
+ */
 @Composable
 private fun LockPlaybackLandscape(playing: Boolean) {
     val television = rememberIsTelevision()
     val activity = LocalContext.current as? Activity
     SideEffect {
-        if (television || activity == null) return@SideEffect
+        if (activity == null) return@SideEffect
+        val window = activity.window
+        val bars = WindowCompat.getInsetsController(window, window.decorView)
+        if (playing) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            bars.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            bars.show(WindowInsetsCompat.Type.systemBars())
+        }
+        if (television) return@SideEffect
         activity.requestedOrientation = if (playing) {
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         } else {
@@ -255,16 +277,18 @@ private fun PhoneScaffold(
     val current = nav.current
     val showNav = current !is Dest.Player && current !is Dest.Detail && current !is Dest.TitlePage &&
         current !is Dest.EmbedPlayer && current !is Dest.StreamPlayer && current !is Dest.MediaDetail &&
-        current !is Dest.Watch
+        current !is Dest.Watch && current !is Dest.Token && current !is Dest.OfflinePlayer
     val padStatus = current !is Dest.Home && current !is Dest.Detail && current !is Dest.TitlePage &&
         current !is Dest.Player && current !is Dest.EmbedPlayer && current !is Dest.StreamPlayer &&
-        current !is Dest.Watch
+        current !is Dest.Watch && current !is Dest.OfflinePlayer
     val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottom = when {
-        !showNav && (current is Dest.Player || current is Dest.EmbedPlayer || current is Dest.StreamPlayer || current is Dest.Watch) -> 0.dp
-        showNav -> PhoneNavHeight + SourceBarHeight + navInset
+        !showNav && (current is Dest.Player || current is Dest.EmbedPlayer || current is Dest.StreamPlayer || current is Dest.Watch || current is Dest.OfflinePlayer) -> 0.dp
+        showNav -> PhoneNavHeight + navInset
         else -> navInset
     }
+    val picking by vm.sourcePicker.collectAsStateWithLifecycle()
+    LaunchedEffect(showNav) { if (!showNav) vm.sourcePicker.value = false }
     Box(Modifier.fillMaxSize().background(KhColors.Background)) {
         ScreenBody(
             vm = vm,
@@ -276,15 +300,24 @@ private fun PhoneScaffold(
                 .padding(bottom = bottom),
         )
         if (showNav) {
-            Column(Modifier.align(Alignment.BottomCenter)) {
-                SourceBar(library = nav.library, onSelect = onSelectLibrary)
-                KhBottomNav(
-                    active = nav.activeTab,
-                    tabs = nav.library.tabs(),
-                    labelOf = { it.labelFor(nav.library) },
-                    onSelect = onSelectTab,
-                )
-            }
+            KhBottomNav(
+                active = nav.activeTab,
+                // Search lives in the phone top bar, so the bottom bar has room for My KH.
+                tabs = nav.library.tabs().filter { it != RootTab.SEARCH },
+                labelOf = { it.labelFor(nav.library) },
+                onSelect = onSelectTab,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+        if (picking) {
+            SourcePicker(
+                current = nav.library,
+                onPick = { library ->
+                    vm.sourcePicker.value = false
+                    if (library != nav.library) onSelectLibrary(library)
+                },
+                onDismiss = { vm.sourcePicker.value = false },
+            )
         }
     }
 }
@@ -315,6 +348,8 @@ private fun ScreenBody(
                 is Dest.StreamPlayer -> StreamPlayerScreen(vm, d)
                 is Dest.Watch -> WatchScreen(vm, d)
                 is Dest.Token -> TokenScreen(vm)
+                is Dest.Mine -> MineScreen(vm, nav.library)
+                is Dest.OfflinePlayer -> OfflinePlayer(vm, d)
             }
         }
     }
@@ -337,6 +372,8 @@ private fun screenKey(nav: NavState): String {
         is Dest.StreamPlayer -> "stream:${d.progressKey}"
         is Dest.Watch -> "watch:${d.progressKey}"
         is Dest.Token -> "token"
+        is Dest.Mine -> "mine"
+        is Dest.OfflinePlayer -> "offline:${d.downloadId}"
     }
     return "${nav.library.name}:$body"
 }

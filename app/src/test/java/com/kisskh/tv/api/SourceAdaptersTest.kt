@@ -202,10 +202,10 @@ class SourceAdaptersTest {
     @Test
     fun shelvesAreSharedAndANewSourceDoesNotLeakTabs() {
         assertEquals(
-            listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES, RootTab.ANIME),
+            listOf(RootTab.HOME, RootTab.SEARCH, RootTab.MOVIES, RootTab.SERIES, RootTab.ANIME, RootTab.MINE),
             Library.REELIX.tabs(),
         )
-        assertEquals(listOf(RootTab.HOME, RootTab.SEARCH, RootTab.ANIME), Library.ANISUGE.tabs())
+        assertEquals(listOf(RootTab.HOME, RootTab.SEARCH, RootTab.ANIME, RootTab.MINE), Library.ANISUGE.tabs())
         assertEquals(Library.NEXUS.tabs(), Library.ANISUGE.tabs())
         val home = NavState(library = Library.ANISUGE)
         assertEquals(home, home.selectTab(RootTab.MOVIES))

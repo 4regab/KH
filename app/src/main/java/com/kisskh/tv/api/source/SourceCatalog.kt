@@ -75,7 +75,11 @@ object SourceCatalog {
         ).filter { it.items.isNotEmpty() }
     }
 
-    suspend fun browse(library: Library, kind: MediaKind, page: Int, repo: Repository, tmdb: TmdbClient): ShelfPage = when (library) {
+    /**
+     * One page of a Movies / TV / Anime grid. [country] (an ISO code, see [OriginCountries]) only
+     * applies to CineWave and CineJoy movies and TV; every other grid ignores it.
+     */
+    suspend fun browse(library: Library, kind: MediaKind, page: Int, repo: Repository, tmdb: TmdbClient, country: String? = null): ShelfPage = when (library) {
         Library.KISSKH -> {
             val query = CatalogQuery(type = kind.toContent())
             val list = repo.list(query, page, 40)
@@ -85,9 +89,10 @@ object SourceCatalog {
         Library.CINEWAVE, Library.CINEJOY -> {
             val today = TmdbPaths.todayUtc()
             val result = when (kind) {
+                // ponytail: anime stays unfiltered, its list is picked by a TMDB keyword, not by country.
                 MediaKind.ANIME -> tmdb.anime(page)
-                MediaKind.MOVIE -> tmdb.discover("movie", false, page, today)
-                MediaKind.TV -> tmdb.discover("tv", false, page, today)
+                MediaKind.MOVIE -> tmdb.discover("movie", false, page, today, country)
+                MediaKind.TV -> tmdb.discover("tv", false, page, today, country)
             }
             ShelfPage(result.items.map { it.card(library, kind) }, result.page, result.page < result.totalPages)
         }
@@ -332,7 +337,8 @@ object SourceCatalog {
             mapOf("Referer" to Anisuge.REFERER, "X-Requested-With" to "XMLHttpRequest", "Accept" to "application/json"),
         )
         val episodes = Anisuge.parseEpisodes(jsonResult(list))
-        val card = TitleCard(Library.ANISUGE, slug, MediaKind.ANIME, title, poster, null, null, null, slug)
+        // The show page has its own poster. It beats the tapped card's picture, which may be a wide banner.
+        val card = TitleCard(Library.ANISUGE, slug, MediaKind.ANIME, title, Anisuge.showPoster(html) ?: poster, null, null, null, slug)
         return TitleDetail(card, "", listOf(SeasonBlock(1, "Episodes", episodes)))
     }
 
@@ -346,6 +352,7 @@ object SourceCatalog {
             last = Nexus.lastPage(json)
             page++
         }
+        // ponytail: the tapped card's picture is all Nexus detail gets; the episodes call has no show art.
         val card = TitleCard(Library.NEXUS, id, MediaKind.ANIME, name.ifBlank { "Anime" }, poster, null, null, null, slug)
         return TitleDetail(card, "", listOf(SeasonBlock(1, "Episodes", episodes)))
     }
@@ -364,23 +371,6 @@ object SourceCatalog {
 
     private suspend fun kissHome(repo: Repository): List<ShelfRow> {
         val rows = ArrayList<ShelfRow>()
-        val cont = repo.history.recent(20).map { entry ->
-            TitleCard(
-                source = Library.KISSKH,
-                id = entry.dramaId.toString(),
-                kind = MediaKind.TV,
-                name = entry.title ?: "Continue",
-                poster = entry.thumbnail,
-                backdrop = entry.thumbnail,
-                year = null,
-                overview = null,
-                resumeEpisode = entry.episodeId.toString(),
-                resumeSeason = 1,
-                resumeNumber = entry.episodeNumber.toInt(),
-                meta = "Episode ${entry.episodeNumber}",
-            )
-        }
-        if (cont.isNotEmpty()) rows += ShelfRow("Continue", cont)
         fun add(title: String, shows: List<Show>, kind: MediaKind) {
             if (shows.isNotEmpty()) rows += ShelfRow(title, shows.take(20).map { it.card(kind) })
         }

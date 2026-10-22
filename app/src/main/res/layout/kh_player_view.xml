@@ -8,9 +8,11 @@
     android:focusable="true"
     app:animation_enabled="true"
     app:controller_layout_id="@layout/kh_player_controls"
+    app:play_icon="@drawable/ic_player_play"
+    app:pause_icon="@drawable/ic_player_pause"
     app:hide_on_touch="false"
     app:show_buffering="always"
-    app:show_subtitle_button="true"
+    app:show_subtitle_button="false"
     app:show_timeout="4000"
     app:shutter_background_color="@android:color/black"
     app:use_controller="true" />

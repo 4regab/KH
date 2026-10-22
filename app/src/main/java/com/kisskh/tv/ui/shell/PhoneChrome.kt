@@ -2,9 +2,6 @@ package com.kisskh.tv.ui.shell
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,8 +27,6 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.kisskh.tv.R
-import com.kisskh.tv.api.media.LIBRARY_ORDER
-import com.kisskh.tv.api.media.Library
 import com.kisskh.tv.ui.RootTab
 import com.kisskh.tv.ui.theme.KhColors
 import com.kisskh.tv.ui.theme.KhFocusable
@@ -39,9 +34,6 @@ import com.kisskh.tv.ui.theme.KhTheme
 
 /** Height of the icon+label row. The system navigation inset sits below it. */
 val PhoneNavHeight = 64.dp
-
-/** Source switch that sits just above the phone bottom bar. */
-val SourceBarHeight = 44.dp
 
 /**
  * Phone bottom navigation. Selected is white; the rest are muted. Every item opens that section.
@@ -81,55 +73,6 @@ fun KhBottomNav(
                 Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(painterResource(iconFor(tab)), contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
                     Text(label, color = tint, fontSize = 11.sp, maxLines = 1)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun SourceBar(
-    library: Library,
-    onSelect: (Library) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .height(SourceBarHeight)
-            .background(KhColors.Background)
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        LIBRARY_ORDER.forEach { source ->
-            val on = source == library
-            KhFocusable(
-                onClick = { onSelect(source) },
-                modifier = Modifier
-                    .height(32.dp)
-                    .semantics {
-                        contentDescription = "Source ${source.label}"
-                        selected = on
-                    },
-                shape = KhTheme.shapes.chip,
-                scaleAndLift = false,
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(2.dp)
-                        .background(if (on) KhColors.TextPrimary else KhColors.Surface, KhTheme.shapes.chip),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        source.label,
-                        color = if (on) KhColors.OnLight else KhColors.TextSecondary,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        modifier = Modifier.padding(horizontal = 10.dp),
-                    )
                 }
             }
         }

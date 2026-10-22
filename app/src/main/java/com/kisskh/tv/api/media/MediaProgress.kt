@@ -153,6 +153,18 @@ class MediaProgress(
     }
 }
 
+/**
+ * The Continue Watching row for one source: newest first, one card per title (its latest episode),
+ * and titles whose latest episode or movie was watched to the end are left out.
+ */
+fun continueEntries(entries: List<MediaEntry>, source: String, limit: Int = 20): List<MediaEntry> =
+    entries.asSequence()
+        .filter { it.source == source }
+        .distinctBy { it.kind + ":" + it.token }
+        .filter { !it.finished }
+        .take(limit)
+        .toList()
+
 /** The Febbox `ui` token, kept out of the KissKH preference files. */
 class CineJoyToken(private val prefs: SharedPreferences) {
     fun get(): String = prefs.getString(KEY, "").orEmpty().trim()

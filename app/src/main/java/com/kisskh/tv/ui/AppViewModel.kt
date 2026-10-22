@@ -65,6 +65,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val media = MediaSession(app, viewModelScope)
     val shelf = ShelfSession(viewModelScope, repo, media.progress, cinejoyToken = { media.tokens.get() })
 
+    /** My List and Watched marks (see [SavedTitles]). */
+    val saved = com.kisskh.tv.api.SavedTitles.create(app)
+
+    /** Offline copies (see [com.kisskh.tv.download.KhDownloads]). */
+    val downloads = com.kisskh.tv.download.KhDownloads.get(app)
+
     // ---------------------------------------------------------------- navigation
 
     // The app opens on CineWave. KissKH and CineJoy are one press away on the source switch.
@@ -86,10 +92,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** KissKH, CineWave, or CineJoy. See [NavState.selectLibrary]. */
     fun selectLibrary(library: Library) {
+        sourcePicker.value = false
         val playing = _nav.value.current
         _nav.update { it.selectLibrary(library) }
         stopIfPlaying(playing)
         prunePagers()
+    }
+
+    /** The full-screen "Choose a source" overlay on phones. */
+    val sourcePicker = MutableStateFlow(false)
+
+    /** The title page started its Play action for [Dest.TitlePage.autoplay]; do not start it again on Back. */
+    fun consumeAutoplay() {
+        _nav.update { state ->
+            state.updateCurrent { (it as? Dest.TitlePage)?.copy(autoplay = false) ?: it }
+        }
     }
 
     /** @return true if we handled back, false if the app should exit. */

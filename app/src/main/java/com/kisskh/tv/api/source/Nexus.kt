@@ -129,8 +129,8 @@ object Nexus {
                 "slug" -> slug = reader.nextStringOrEmpty()
                 "name" -> name = reader.nextStringOrEmpty()
                 "description" -> overview = reader.nextStringOrEmpty()
-                "poster" -> poster = image(reader.nextStringOrEmpty())
-                "backdrop" -> backdrop = image(reader.nextStringOrEmpty())
+                "poster" -> poster = image(firstPath(reader))
+                "backdrop" -> backdrop = image(firstPath(reader))
                 "logo" -> reader.skipValue()
                 "release_date", "relese_date" -> year = reader.nextStringOrEmpty().take(4)
                 else -> reader.skipValue()
@@ -184,26 +184,30 @@ object Nexus {
         )
     }
 
-    /** First imgproxy path in a string or nested object, preferring a 640px rendition. */
+    /**
+     * One picture path from a plain string or a nested object like
+     * `{"resized":{"640x960":"/a.avif",...},"resized_blur":{...}}`. The 640-wide rendition wins,
+     * otherwise the first path. Anything under a "blur" key is a tiny preview and is never used.
+     * Returns null for `null` and for objects with no path.
+     */
     private fun firstPath(reader: JsonReader): String? {
-        val found = ArrayList<String>()
+        val found = ArrayList<Pair<String, String>>()
         collectPaths(reader, found, "")
-        return found.firstOrNull()
+        return (found.firstOrNull { it.first.startsWith("640x") } ?: found.firstOrNull())?.second
     }
 
-    private fun collectPaths(reader: JsonReader, found: ArrayList<String>, key: String) {
+    private fun collectPaths(reader: JsonReader, found: ArrayList<Pair<String, String>>, key: String) {
         when (reader.peek()) {
             JsonReader.Token.STRING -> {
                 val value = reader.nextString()
-                if (value.startsWith("/") || value.startsWith("http")) {
-                    if ("640" in key || "640" in value) found.add(0, value) else found += value
-                }
+                // A bare string is the path itself. Inside an object only path-like strings count.
+                if (value.isNotBlank() && (key.isEmpty() || '/' in value)) found += key to value
             }
             JsonReader.Token.BEGIN_OBJECT -> {
                 reader.beginObject()
                 while (reader.hasNext()) {
                     val name = reader.nextName()
-                    collectPaths(reader, found, name)
+                    if (name.contains("blur", ignoreCase = true)) reader.skipValue() else collectPaths(reader, found, name)
                 }
                 reader.endObject()
             }

@@ -145,6 +145,17 @@ object SubLists {
         return names[word] ?: "und"
     }
 
+    /**
+     * An ISO language code for a subtitle track, from whatever the source sent: "en", "en-US",
+     * "English" or "English 2". "und" when nothing is recognised.
+     */
+    fun code(language: String, label: String): String {
+        val raw = language.trim().lowercase().replace('_', '-')
+        val head = raw.substringBefore('-')
+        if (head.length in 2..3 && head.all { it in 'a'..'z' } && head != "und") return head
+        return langOf(language).takeIf { it != "und" } ?: langOf(label)
+    }
+
     private fun JsonReader.readStrings(): Map<String, String> {
         if (peek() != JsonReader.Token.BEGIN_OBJECT) {
             skipValue()

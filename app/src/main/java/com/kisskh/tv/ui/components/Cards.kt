@@ -1,5 +1,6 @@
 package com.kisskh.tv.ui.components
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -51,6 +52,10 @@ object KhCardSize {
     val PhoneWidth = 150.dp
 }
 
+/** Addresses already logged by [Artwork] as failed. */
+// ponytail: grows by one short string per broken address for the life of the process; fine for a session.
+private val loggedFailures: MutableSet<String> = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())
+
 /**
  * Artwork that fills its box. While it loads the box is a plain #17171B (no shimmer). If there is no
  * address, or the image fails, it shows [title] centered on that tile (14 sp, two lines), so a card
@@ -100,7 +105,11 @@ fun Artwork(
                 contentScale = if (fitPortrait && portrait) ContentScale.Fit else ContentScale.Crop,
                 alignment = if (fitPortrait && portrait) Alignment.CenterEnd else Alignment.Center,
                 onSuccess = { portrait = it.painter.intrinsicSize.let { s -> s.height > s.width } },
-                onError = { failed = true },
+                onError = { state ->
+                    failed = true
+                    // Once per address, so a failing grid does not flood the log.
+                    if (url != null && loggedFailures.add(url)) Log.w("KhImage", "failed $url: ${state.result.throwable}")
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         }

@@ -7,12 +7,15 @@ Package and applicationId stay `com.kisskh.tv` (keeps installs and saved data co
 The visible brand is being changed to "KH".
 
 ## State right now
-- Branch `kh-netflix` implements the Netflix-style TV and phone UI described in the spec below.
-  Version is `versionName` 1.1, `versionCode` 2.
-- The last version confirmed working on a device before this redesign was the original "KissKH TV"
-  UI (commit `cc99857`): playback, subtitles, resume, touch taps and phone layout all worked then.
-- The first KH redesign pass was rejected as generic "Disney+-like" (titles under TV cards, episode
-  chip grids, a rail that always shows labels). Do not ship that look.
+- `master` is version 1.3 (`versionCode` 4). Six sources share one set of screens (`ui/shelf`): KissKH,
+  CineWave, CineJoy, Reelix, Anisuge and Anime Nexus. The app opens on CineWave.
+- 1.3 added: My List and Watched (`api/SavedTitles.kt`, prefs `saved`), a country filter on CineWave and
+  CineJoy grids (TMDB `with_origin_country`), offline downloads (`download/`: Media3 DownloadManager, best
+  rendition, subtitles copied, started from the title page), the My KH tab, English-first audio and
+  subtitles for movies and TV, and a working play/pause (Media3 1.5 only drives `exo_play_pause`).
+- Anime Nexus images are signed `.avif` paths inside `poster.resized`; only the `.avif` URL loads.
+- Playback logs one line per event under the logcat tag `KhPlayback` (startup time, stalls, position,
+  track languages) for on-device checks.
 
 ## Working parts you should keep
 - `api/KeyService.kt`: makes the `kkey` that the stream and subtitle endpoints need. It runs the site's live
@@ -52,7 +55,8 @@ Full details are in `API.md` ("Verified catalog mapping") and `docs/categories*.
 - `local.properties` (sdk.dir) is gitignored. Recreate it on a new machine.
 
 ## Devices
-- Phone: vivo V2205, Android 14, USB serial `10ACCQ2YXM002B6`.
+- Phone: vivo V2205 (V2205T), Android 14, USB serial `10ACCQ2YXM002B6`. Android SDK on this machine:
+  `C:\Users\james\kh-tools\android-sdk` (see `local.properties`).
   `svc power stayon usb` was turned on for testing. Undo it with `adb shell svc power stayon false`.
   Auto-rotate may have been changed. Restore it with `adb shell settings put system accelerometer_rotation 1`.
 - Chromecast with Google TV: wireless ADB at `192.168.16.105:5555`. It was refusing connections at the end.
